@@ -3,9 +3,10 @@ import { ActivityIndicator, StyleSheet, View, Image } from 'react-native';
 
 const tabIcons = {
   home: require('../assets/tab_home.png'),
-  operations: require('../assets/ic_layout.png'),
+  products: require('../assets/ic_box.png'),
   orders: require('../assets/tab_orders.png'),
-  profile: require('../assets/tab_profile.png'),
+  alerts: require('../assets/ic_alert_circle.png'),
+  more: require('../assets/ic_menu.png'),
 };
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -27,6 +28,7 @@ import { StoresScreen } from '../features/inventory/screens/StoresScreen';
 import { TransferScreen } from '../features/inventory/screens/TransferScreen';
 import { UsersScreen } from '../features/inventory/screens/UsersScreen';
 import { OperationsScreen } from '../features/inventory/screens/OperationsScreen';
+import { ReportsScreen } from '../features/inventory/screens/ReportsScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
 import { colors } from '../theme/colors';
 import type { AppStackParamList, AuthStackParamList } from './types';
@@ -69,7 +71,7 @@ function MainTabs({ isAdmin }: { isAdmin: boolean }) {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: colors.pillText,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: {
           fontFamily: 'Poppins-Medium',
@@ -92,9 +94,10 @@ function MainTabs({ isAdmin }: { isAdmin: boolean }) {
         tabBarIcon: ({ focused }) => {
           let src = tabIcons.home;
           if (route.name === 'HomeTab') src = tabIcons.home;
-          else if (route.name === 'Operations') src = tabIcons.operations;
+          else if (route.name === 'Inventory') src = tabIcons.products;
           else if (route.name === 'Orders') src = tabIcons.orders;
-          else if (route.name === 'Profile') src = tabIcons.profile;
+          else if (route.name === 'LowStock') src = tabIcons.alerts;
+          else if (route.name === 'Operations') src = tabIcons.more;
 
           return (
             <Image
@@ -102,7 +105,7 @@ function MainTabs({ isAdmin }: { isAdmin: boolean }) {
               style={{
                 width: 24,
                 height: 24,
-                tintColor: focused ? colors.primary : colors.muted,
+                tintColor: focused ? colors.pillText : colors.muted,
               }}
             />
           );
@@ -110,9 +113,10 @@ function MainTabs({ isAdmin }: { isAdmin: boolean }) {
       })}
     >
       <Tab.Screen name="HomeTab" component={isAdmin ? AdminHomeStack : StaffHomeStack} options={{ title: 'Home' }} />
-      <Tab.Screen name="Operations" component={OperationsScreen} />
-      <Tab.Screen name="Orders" component={OrdersScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: 'Products' }} />
+      <Tab.Screen name="Orders" component={OrdersScreen} options={{ title: 'Orders' }} />
+      <Tab.Screen name="LowStock" component={LowStockAlertsScreen} options={{ title: 'Alerts' }} />
+      <Tab.Screen name="Operations" component={OperationsScreen} options={{ title: 'More' }} />
     </Tab.Navigator>
   );
 }
@@ -137,15 +141,15 @@ export function RootNavigator() {
           <AppStack.Screen name="MainTabs">
             {props => <MainTabs {...props} isAdmin={isAdmin} />}
           </AppStack.Screen>
-          <AppStack.Screen name="Inventory" component={InventoryScreen} />
           <AppStack.Screen name="NewProduct" component={NewProductScreen} />
           <AppStack.Screen name="BookOrder" component={BookOrderScreen} />
           <AppStack.Screen name="Stores" component={StoresScreen} />
           <AppStack.Screen name="Transfer" component={TransferScreen} />
           <AppStack.Screen name="Deliveries" component={DeliveriesScreen} />
           <AppStack.Screen name="History" component={HistoryScreen} />
-          <AppStack.Screen name="LowStock" component={LowStockAlertsScreen} />
           <AppStack.Screen name="Users" component={UsersScreen} />
+          <AppStack.Screen name="Reports" component={ReportsScreen} />
+          <AppStack.Screen name="Profile" component={ProfileScreen} />
         </AppStack.Navigator>
       ) : (
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>

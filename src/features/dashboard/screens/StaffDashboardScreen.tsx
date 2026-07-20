@@ -1,81 +1,76 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AlertsPanel } from '../../../components/AlertsPanel';
+import { AppBar } from '../../../components/AppBar';
 import { AppIcon } from '../../../components/AppIcon';
-import { MetricCard } from '../../../components/MetricCard';
-import { SectionHeader } from '../../../components/SectionHeader';
-import { useAuth } from '../../auth/AuthProvider';
-import { useAlerts } from '../../../services/useAlerts';
+import { ActivityTimeline } from '../../../components/ActivityTimeline';
+import { BarListCard } from '../../../components/BarListCard';
+import { StatCard } from '../../../components/StatCard';
+import { StoreFilterPill } from '../../../components/StoreFilterPill';
 import { colors } from '../../../theme/colors';
-import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { useInventoryData } from '../../../services/useInventoryData';
 import type { AppStackParamList } from '../../../navigation/types';
 
-type StaffDashboardProps = NativeStackScreenProps<AppStackParamList, 'StaffDashboard'>;
+type Props = NativeStackScreenProps<AppStackParamList, 'StaffDashboard'>;
 
-function formatActivityTime(value?: unknown) {
-  const maybeTimestamp = value as { toDate?: () => Date } | undefined;
-  const date = maybeTimestamp?.toDate?.();
-  if (!date) return 'Recently';
-  const diff = Date.now() - date.getTime();
-  if (diff < 60000) return 'Just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return date.toLocaleDateString();
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 21) return 'Good evening';
+  return 'Good night';
 }
 
-export function StaffDashboardScreen({ navigation }: StaffDashboardProps) {
-  const { profile, user } = useAuth();
+export function StaffDashboardScreen({ navigation }: Props) {
   const data = useInventoryData();
-  const { width } = useWindowDimensions();
-  const [alertsOpen, setAlertsOpen] = useState(false);
-  const { alerts, markRead, markAllRead, clearAll } = useAlerts(user?.uid, profile);
-  const displayName = profile?.name || user?.displayName || 'Operator';
-  const metricWidth = '48%';
-  const unreadCount = alerts.filter(a => !a.read).length;
+
+  const totalUnits = useMemo(
+    () => data.inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    [data.inventory],
+  );
+
+  const storeLabel = useMemo(() => {
+    if (data.stores.length === 0) return 'No store assigned';
+    if (data.stores.length === 1) return data.stores[0].name;
+    return `${data.stores.length} stores assigned`;
+  }, [data.stores]);
+
+  const warehouseRows = useMemo(() => {
+    return data.warehouses
+      .map(warehouse => {
+        const units = data.inventory
+          .filter(item => item.warehouseId === warehouse.id)
+          .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        return {
+          id: warehouse.id,
+          label: warehouse.name,
+          units,
+          percent: totalUnits > 0 ? Math.round((units / totalUnits) * 100) : 0,
+        };
+      })
+      .sort((a, b) => b.units - a.units)
+      .slice(0, 5);
+  }, [data.warehouses, data.inventory, totalUnits]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <AppBar
+        title="Dashboard"
+        leftIcon="menu"
+        onLeftPress={() => navigation.navigate('Operations')}
+        rolePill="Staff"
+      />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* ── Hero ── */}
-        <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <View style={styles.heroLeft}>
-              <Text style={styles.heroKicker}>Good morning 👋</Text>
-              <Text style={styles.heroName}>Staff Account 😊</Text>
-            </View>
-            <View style={styles.heroActions}>
-              <View style={styles.syncBadge}>
-                <View style={styles.syncDot} />
-                <Text style={styles.syncText}>Live</Text>
-              </View>
-              <Pressable
-                style={styles.iconButton}
-                onPress={() => setAlertsOpen(true)}>
-                <AppIcon name="bell" size={18} tintColor="#FFFFFF" />
-                {unreadCount > 0 && (
-                  <View style={styles.bellBadge}>
-                    <Text style={styles.bellBadgeText}>
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </View>
+        <StoreFilterPill label={storeLabel} />
 
         {data.error ? (
           <View style={styles.errorBox}>
@@ -87,145 +82,62 @@ export function StaffDashboardScreen({ navigation }: StaffDashboardProps) {
           </View>
         ) : null}
 
+        <View style={styles.greetingWrap}>
+          <Text style={styles.overline}>TODAY AT YOUR STORE</Text>
+          <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+        </View>
+
         {data.loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={colors.primary} size="large" />
           </View>
         ) : null}
 
-        <View style={styles.metricGrid}>
-          <MetricCard
-            style={{ width: metricWidth }}
-            label="Total Inventory"
-            value={data.inventory.reduce((s, i) => s + Number(i.quantity || 0), 0)}
-            icon="box"
-            iconBg={colors.cardTintGreen}
-            iconTint={colors.primary}
+        <View style={styles.statGrid}>
+          <StatCard
+            style={styles.statCard}
+            label="Inventory"
+            value={totalUnits.toLocaleString()}
+            caption={`${data.stats.productCount} products`}
+            captionTone="positive"
           />
-          <MetricCard
-            style={{ width: metricWidth }}
-            label="Low Stock"
-            value={data.lowStockItems.length}
-            icon="alertCircle"
-            iconBg={colors.cardTintRed}
-            iconTint={colors.danger}
-            onPress={() => navigation.navigate('LowStock')}
-          />
-          <MetricCard
-            style={{ width: metricWidth }}
+          <StatCard
+            style={styles.statCard}
             label="Pending Orders"
             value={data.stats.pendingOrders}
-            icon="shoppingBag"
-            iconBg={colors.cardTintAmber}
-            iconTint={colors.warning}
+            caption="stable"
+            captionTone="neutral"
             onPress={() => navigation.navigate('Orders')}
           />
-          <MetricCard
-            style={{ width: metricWidth }}
-            label="Pending Deliveries"
+          <StatCard
+            style={styles.statCard}
+            label="Deliveries"
             value={data.stats.pendingDeliveries}
-            icon="delivery"
-            iconBg={colors.cardTintBlue}
-            iconTint={colors.accent}
+            caption="on track"
+            captionTone="neutral"
             onPress={() => navigation.navigate('Deliveries')}
+          />
+          <StatCard
+            style={styles.statCard}
+            label="Low Stock"
+            value={data.lowStockItems.length}
+            caption={data.lowStockItems.length > 0 ? 'review' : 'all clear'}
+            captionTone={data.lowStockItems.length > 0 ? 'negative' : 'positive'}
+            onPress={() => navigation.navigate('LowStock')}
           />
         </View>
 
-        <SectionHeader title="Your Stores" meta={`${data.stores.length} active`} />
-        <View style={styles.storeGrid}>
-          {data.stores.length === 0 ? (
-            <Text style={styles.emptyInline}>No assigned stores found.</Text>
-          ) : (
-            data.stores.map(store => {
-              const total = data.inventory
-                .filter(item => item.storeId === store.id)
-                .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-              const maxTotal = Math.max(
-                ...data.stores.map(s =>
-                  data.inventory
-                    .filter(i => i.storeId === s.id)
-                    .reduce((sum, i) => sum + Number(i.quantity || 0), 0),
-                ),
-                1,
-              );
-              const fillPercent = Math.round((total / maxTotal) * 100);
-              return (
-                <View key={store.id} style={[styles.storeCard, { width: width > 720 ? '48.5%' : '100%' }]}>
-                  <View style={styles.storeCardHeader}>
-                    <View style={styles.storeIconWrap}>
-                      <AppIcon name="store" size={16} tintColor={colors.primary} />
-                    </View>
-                    <Text style={styles.storeName}>{store.name}</Text>
-                  </View>
-                  <Text style={styles.storeUnits}>{total} units in stock</Text>
-                  <View style={styles.storeBarTrack}>
-                    <View style={[styles.storeBarFill, { width: `${Math.max(fillPercent, 6)}%` }]} />
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
+        <BarListCard
+          title="Warehouse-wise"
+          rows={warehouseRows}
+          emptyText="No warehouse data yet."
+        />
 
-        <SectionHeader title="Recent Activity" />
-        {data.activity.length === 0 ? (
-          <View style={styles.activityEmpty}>
-            <AppIcon name="history" size={24} tintColor={colors.muted} />
-            <Text style={styles.activityEmptyText}>No recent activity logs.</Text>
-          </View>
-        ) : (
-          data.activity.slice(0, 5).map(log => (
-            <View key={log.id} style={styles.activityRow}>
-              <View style={[styles.activityIcon, { backgroundColor: log.action.includes('Transfer') ? '#F5F3FF' : log.action.includes('Order') ? colors.cardTintAmber : log.action.includes('Delivery') ? colors.cardTintBlue : log.action.includes('Alert') || log.action.includes('Removed') ? colors.cardTintRed : colors.cardTintGreen }]}>
-                <AppIcon
-                  name={
-                    log.action.includes('Transfer')
-                      ? 'transfer'
-                      : log.action.includes('Order')
-                        ? 'shoppingBag'
-                        : log.action.includes('Delivery')
-                          ? 'delivery'
-                          : log.action.includes('Alert') || log.action.includes('Removed')
-                            ? 'alertCircle'
-                            : 'box'
-                  }
-                  size={16}
-                  tintColor={
-                    log.action.includes('Transfer')
-                      ? '#7C3AED'
-                      : log.action.includes('Order')
-                        ? colors.warning
-                        : log.action.includes('Delivery')
-                          ? colors.accent
-                          : log.action.includes('Alert') || log.action.includes('Removed')
-                            ? colors.danger
-                            : colors.primary
-                  }
-                />
-              </View>
-              <View style={styles.activityBody}>
-                <Text style={styles.activityAction}>{log.action}</Text>
-                <Text style={styles.activityDetail} numberOfLines={2}>
-                  {log.detail}
-                </Text>
-                <Text style={styles.activityMeta}>
-                  {log.createdBy || 'System'} · {formatActivityTime(log.createdAt)}
-                </Text>
-              </View>
-            </View>
-          ))
-        )}
+        <ActivityTimeline
+          activity={data.activity}
+          onSeeAll={() => navigation.navigate('History')}
+        />
       </ScrollView>
-
-      {/* Alerts panel */}
-      <AlertsPanel
-        visible={alertsOpen}
-        alerts={alerts}
-        onClose={() => setAlertsOpen(false)}
-        onMarkRead={markRead}
-        onMarkAllRead={markAllRead}
-        onClearAll={clearAll}
-      />
     </SafeAreaView>
   );
 }
@@ -238,86 +150,36 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     paddingBottom: spacing.xxl + spacing.lg,
-    gap: spacing.md,
+    gap: spacing.lg,
   },
-  hero: {
-    backgroundColor: colors.heroDark,
-    borderRadius: 24,
-    padding: spacing.xl,
-    ...shadows.lg,
+  greetingWrap: {
+    gap: spacing.xs,
   },
-  heroTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  heroLeft: {
-    flex: 1,
-  },
-  heroKicker: {
+  overline: {
     fontFamily: typography.fontFamily.semiBold,
     fontSize: 11,
-    color: colors.primaryLight,
-    letterSpacing: 1.2,
-    marginBottom: spacing.xs,
+    letterSpacing: 1,
+    color: colors.muted,
   },
-  heroName: {
+  greeting: {
     fontFamily: typography.fontFamily.bold,
     fontSize: typography.fontSize.xxl,
-    color: '#FFFFFF',
+    color: colors.ink,
     letterSpacing: -0.3,
   },
-  heroActions: {
+  loadingWrap: {
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+  },
+  statGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
-  syncBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(22,163,74,0.2)',
-    borderRadius: 20,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    gap: 6,
-  },
-  syncDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.primaryLight,
-  },
-  syncText: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: 10,
-    color: colors.primaryLight,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bellBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    backgroundColor: colors.danger,
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-    borderWidth: 1.5,
-    borderColor: colors.heroDark,
-  },
-  bellBadgeText: {
-    fontFamily: typography.fontFamily.bold,
-    fontSize: 9,
-    color: colors.surface,
+  statCard: {
+    width: '47.5%',
+    flexGrow: 1,
   },
   errorBox: {
     flexDirection: 'row',
@@ -328,7 +190,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA',
     padding: spacing.md,
-    marginBottom: spacing.md,
   },
   errorTextWrap: {
     flex: 1,
@@ -343,130 +204,5 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     color: colors.danger,
     marginTop: 2,
-  },
-  loadingWrap: {
-    paddingVertical: spacing.lg,
-    alignItems: 'center',
-  },
-  metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    justifyContent: 'space-between',
-  },
-  storeGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  storeCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.sm,
-    ...shadows.sm,
-  },
-  storeCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.xs,
-  },
-  storeIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: colors.cardTintGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  storeName: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.sm,
-    color: colors.ink,
-    flex: 1,
-  },
-  storeUnits: {
-    fontFamily: typography.fontFamily.regular,
-    fontSize: typography.fontSize.xs,
-    color: colors.muted,
-    marginBottom: spacing.sm,
-  },
-  storeBarTrack: {
-    height: 6,
-    backgroundColor: colors.background,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  storeBarFill: {
-    height: '100%',
-    backgroundColor: colors.primary,
-    borderRadius: 3,
-  },
-  emptyInline: {
-    fontFamily: typography.fontFamily.regular,
-    fontSize: typography.fontSize.sm,
-    color: colors.muted,
-    textAlign: 'center',
-    paddingVertical: spacing.md,
-    flex: 1,
-  },
-  activityRow: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    gap: spacing.sm,
-    ...shadows.sm,
-  },
-  activityIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.cardTintBlue,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activityBody: {
-    flex: 1,
-  },
-  activityAction: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.sm,
-    color: colors.ink,
-  },
-  activityDetail: {
-    fontFamily: typography.fontFamily.regular,
-    fontSize: typography.fontSize.xs,
-    color: colors.muted,
-    marginTop: 2,
-    lineHeight: 16,
-  },
-  activityMeta: {
-    fontFamily: typography.fontFamily.regular,
-    fontSize: 11,
-    color: colors.muted,
-    marginTop: spacing.xs,
-  },
-  activityEmpty: {
-    alignItems: 'center',
-    padding: spacing.xl,
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    flex: 1,
-  },
-  activityEmptyText: {
-    fontFamily: typography.fontFamily.medium,
-    fontSize: typography.fontSize.sm,
-    color: colors.muted,
-    marginTop: spacing.sm,
   },
 });

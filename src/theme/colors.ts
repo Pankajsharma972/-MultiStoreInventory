@@ -20,4 +20,8 @@ export const colors = {
   cardTintAmber: '#FFFBEB',
   cardTintRed: '#FEF2F2',
   cardTintPurple: '#F5F3FF',
+  navy: '#1E293B',
+  navyBar: '#243B6B',
+  pillBg: '#EEF2FF',
+  pillText: '#3B5BDB',
 };

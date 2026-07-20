@@ -43,7 +43,7 @@ export function OrdersScreen({ navigation }: Props) {
 
   return (
     <ScreenShell
-      onBack={navigation.goBack}
+      onBack={navigation.canGoBack() ? navigation.goBack : undefined}
       subtitle="Filter pending, processing, completed, or cancelled customer orders."
       title="Pending Orders List">
       <SelectPill

@@ -23,22 +23,25 @@ export function OperationsScreen({ navigation }: Props) {
 
   const isAdmin = profile?.role === 'admin';
 
-  const adminModules: Array<{
+  type Module = {
     title: string;
     route: keyof AppStackParamList;
     subtitle: string;
-    icon: 'box' | 'store' | 'transfer' | 'shoppingBag' | 'delivery' | 'history' | 'alertCircle' | 'user';
+    icon:
+      | 'box'
+      | 'store'
+      | 'transfer'
+      | 'shoppingBag'
+      | 'delivery'
+      | 'history'
+      | 'alertCircle'
+      | 'user'
+      | 'report';
     iconBg: string;
     iconTint: string;
-  }> = [
-    {
-      title: 'Inventory Search',
-      route: 'Inventory',
-      subtitle: 'Find products, manage levels and locations.',
-      icon: 'box',
-      iconBg: colors.cardTintGreen,
-      iconTint: colors.primary,
-    },
+  };
+
+  const adminModules: Module[] = [
     {
       title: 'Stores & Warehouses',
       route: 'Stores',
@@ -64,14 +67,6 @@ export function OperationsScreen({ navigation }: Props) {
       iconTint: colors.accent,
     },
     {
-      title: 'Low Stock Alerts',
-      route: 'LowStock',
-      subtitle: 'Review critical, out-of-stock and low items.',
-      icon: 'alertCircle',
-      iconBg: colors.cardTintRed,
-      iconTint: colors.danger,
-    },
-    {
       title: 'Activity History',
       route: 'History',
       subtitle: 'Comprehensive audit log of system activities.',
@@ -80,38 +75,47 @@ export function OperationsScreen({ navigation }: Props) {
       iconTint: colors.primaryDark,
     },
     {
-      title: 'Staff Users',
+      title: 'Users & Roles',
       route: 'Users',
       subtitle: 'Manage user credentials and store assignments.',
       icon: 'user',
       iconBg: colors.cardTintPurple,
       iconTint: '#7C3AED',
     },
+    {
+      title: 'Reports',
+      route: 'Reports',
+      subtitle: 'Store-wise value and monthly order trends.',
+      icon: 'report',
+      iconBg: colors.cardTintAmber,
+      iconTint: colors.warning,
+    },
+    {
+      title: 'Profile',
+      route: 'Profile',
+      subtitle: 'Account details and sign out.',
+      icon: 'user',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primary,
+    },
   ];
 
-  const staffModules: Array<{
-    title: string;
-    route: keyof AppStackParamList;
-    subtitle: string;
-    icon: 'box' | 'shoppingBag' | 'delivery' | 'alertCircle';
-    iconBg: string;
-    iconTint: string;
-  }> = [
+  const staffModules: Module[] = [
     {
-      title: 'Inventory Search',
-      route: 'Inventory',
-      subtitle: 'Find products, update stock and search details.',
+      title: 'New Product',
+      route: 'NewProduct',
+      subtitle: 'Create a product at your store location.',
       icon: 'box',
       iconBg: colors.cardTintGreen,
       iconTint: colors.primary,
     },
     {
-      title: 'Order Booking',
-      route: 'Orders',
-      subtitle: 'Book new customer orders and manage listings.',
-      icon: 'shoppingBag',
-      iconBg: colors.cardTintAmber,
-      iconTint: colors.warning,
+      title: 'Stock Transfer',
+      route: 'Transfer',
+      subtitle: 'Transfer items between warehouses.',
+      icon: 'transfer',
+      iconBg: colors.cardTintPurple,
+      iconTint: '#7C3AED',
     },
     {
       title: 'Pending Deliveries',
@@ -122,12 +126,20 @@ export function OperationsScreen({ navigation }: Props) {
       iconTint: colors.accent,
     },
     {
-      title: 'Low Stock Alerts',
-      route: 'LowStock',
-      subtitle: 'Review items below warning levels.',
-      icon: 'alertCircle',
-      iconBg: colors.cardTintRed,
-      iconTint: colors.danger,
+      title: 'Activity History',
+      route: 'History',
+      subtitle: 'Recent inventory and order activity.',
+      icon: 'history',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primaryDark,
+    },
+    {
+      title: 'Profile',
+      route: 'Profile',
+      subtitle: 'Account details and sign out.',
+      icon: 'user',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primary,
     },
   ];
 
@@ -136,9 +148,9 @@ export function OperationsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Operations</Text>
+        <Text style={styles.headerTitle}>More</Text>
         <Text style={styles.headerSubtitle}>
-          {isAdmin ? 'Select administrative controls or search inventory' : 'Select assigned actions to perform tasks'}
+          {isAdmin ? 'All admin modules and account settings' : 'Assigned modules and account settings'}
         </Text>
       </View>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
