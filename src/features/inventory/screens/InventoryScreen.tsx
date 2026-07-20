@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
@@ -72,6 +74,8 @@ export function InventoryScreen({ navigation }: Props) {
   const [moveWarehouseId, setMoveWarehouseId] = useState('');
   const [moveLocationCode, setMoveLocationCode] = useState('');
   const [selectedItemId, setSelectedItemId] = useState('');
+  const [updateModalVisible, setUpdateModalVisible] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const selectedStoreId = storeId || data.stores[0]?.id || '';
   const warehouses = data.warehouses.filter(warehouse => warehouse.storeId === selectedStoreId);
@@ -154,8 +158,7 @@ export function InventoryScreen({ navigation }: Props) {
     warehouseId,
   ]);
 
-  const selectedItem =
-    data.inventory.find(item => item.id === selectedItemId) || filteredInventory[0];
+  const selectedItem = data.inventory.find(item => item.id === selectedItemId) || null;
   const moveWarehouses = data.warehouses.filter(
     warehouse => warehouse.storeId === selectedItem?.storeId,
   );
@@ -261,6 +264,7 @@ export function InventoryScreen({ navigation }: Props) {
       }
       setOperationAmount('');
       setOperationReason('');
+      setUpdateModalVisible(false);
       Alert.alert('Updated', 'Inventory has been updated.');
     } catch {
       Alert.alert('Error', 'Could not update stock.');
@@ -277,11 +281,31 @@ export function InventoryScreen({ navigation }: Props) {
     lowStockOnly,
   ].filter(Boolean).length;
 
+  const openUpdateModal = (item: InventoryItem) => {
+    setSelectedItemId(item.id);
+    setOperationType('receive');
+    setOperationAmount('');
+    setOperationReason('');
+    setMoveWarehouseId('');
+    setMoveLocationCode('');
+    setUpdateModalVisible(true);
+  };
+
   return (
     <ScreenShell
       onBack={navigation.canGoBack() ? navigation.goBack : undefined}
       subtitle="Search, filter and manage your live inventory."
-      title="Products">
+      title="Products"
+      rightAction={
+        selectedItem ? (
+          <Pressable
+            onPress={() => openUpdateModal(selectedItem)}
+            style={styles.updateActionBtn}>
+            <AppIcon name="edit" size={14} tintColor={colors.surface} />
+            <Text style={styles.updateActionBtnText}>Update</Text>
+          </Pressable>
+        ) : undefined
+      }>
 
       {/* ── Search Bar ─────────────────────────────────────────── */}
       <View style={styles.searchCard}>
@@ -547,7 +571,7 @@ export function InventoryScreen({ navigation }: Props) {
               {isSelected ? (
                 <View style={styles.selectedBadge}>
                   <AppIcon name="check" size={12} tintColor={colors.primary} />
-                  <Text style={styles.selectedText}>Selected for update</Text>
+                  <Text style={styles.selectedText}>Selected · tap Update</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -555,129 +579,6 @@ export function InventoryScreen({ navigation }: Props) {
         })
       )}
 
-      {selectedItem ? (
-        <View style={styles.updateCard}>
-          <View style={styles.updateHeader}>
-            <View style={styles.updateIconWrap}>
-              <AppIcon name="edit" size={16} tintColor={colors.accent} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.updateTitle}>Update Stock</Text>
-              <Text style={styles.updateItemName} numberOfLines={1}>
-                {selectedItem.name}
-              </Text>
-            </View>
-            {profile?.role === 'admin' && (
-              <Pressable
-                onPress={() => navigation.navigate('NewProduct', { item: selectedItem })}
-                style={styles.editDetailsBtn}>
-                <Text style={styles.editDetailsBtnText}>Edit Details</Text>
-              </Pressable>
-            )}
-          </View>
-
-          {/* Operation chips */}
-          <Text style={styles.filterGroupLabel}>Operation</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
-            {operations.map(op => (
-              <Pressable
-                key={op.value}
-                onPress={() => setOperationType(op.value)}
-                style={[
-                  styles.chip,
-                  operationType === op.value && styles.chipActive,
-                ]}>
-                <Text
-                  style={[
-                    styles.chipText,
-                    operationType === op.value && styles.chipTextActive,
-                  ]}>
-                  {op.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <AppTextInput
-            keyboardType="number-pad"
-            label={operationType === 'adjust' ? 'New Quantity' : 'Quantity'}
-            onChangeText={text => setOperationAmount(text.replace(/[^0-9]/g, ''))}
-            placeholder={operationType === 'adjust' ? String(selectedItem.quantity) : '0'}
-            value={operationAmount}
-          />
-
-          {operationType === 'move' ? (
-            <>
-              <Text style={styles.filterGroupLabel}>To Warehouse</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
-                {moveWarehouses.map(wh => (
-                  <Pressable
-                    key={wh.id}
-                    onPress={() => setMoveWarehouseId(wh.id)}
-                    style={[
-                      styles.chip,
-                      (moveWarehouseId || moveWarehouses[0]?.id) === wh.id && styles.chipActive,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.chipText,
-                        (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
-                          styles.chipTextActive,
-                      ]}>
-                      {wh.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-              <Text style={styles.filterGroupLabel}>To Location</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
-                {moveLocations.map(loc => (
-                  <Pressable
-                    key={loc.code}
-                    onPress={() => setMoveLocationCode(loc.code)}
-                    style={[
-                      styles.chip,
-                      (moveLocationCode || moveLocations[0]?.code) === loc.code &&
-                        styles.chipActive,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.chipText,
-                        (moveLocationCode || moveLocations[0]?.code) === loc.code &&
-                          styles.chipTextActive,
-                      ]}>
-                      {loc.code}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </>
-          ) : null}
-
-          {operationType === 'adjust' || operationType === 'damaged' ? (
-            <AppTextInput
-              label="Reason / Notes"
-              onChangeText={setOperationReason}
-              placeholder="Adjustment reason"
-              value={operationReason}
-            />
-          ) : null}
-          <AppButton
-            disabled={!operationAmount}
-            onPress={() => submitOperation(selectedItem)}
-            title="Apply Update"
-          />
-        </View>
-      ) : null}
       {profile?.role === 'admin' && (
         <Pressable
           onPress={() => navigation.navigate('NewProduct')}
@@ -685,6 +586,156 @@ export function InventoryScreen({ navigation }: Props) {
           <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
         </Pressable>
       )}
+
+      <Modal
+        visible={updateModalVisible && !!selectedItem}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setUpdateModalVisible(false)}
+        statusBarTranslucent>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setUpdateModalVisible(false)}
+          />
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+            <View style={styles.modalHandle} />
+            {selectedItem ? (
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled">
+                <View style={styles.updateHeader}>
+                  <View style={styles.updateIconWrap}>
+                    <AppIcon name="edit" size={16} tintColor={colors.accent} />
+                  </View>
+                  <View style={styles.updateHeaderText}>
+                    <Text style={styles.updateTitle}>Update Stock</Text>
+                    <Text style={styles.updateItemName} numberOfLines={1}>
+                      {selectedItem.name}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setUpdateModalVisible(false)}
+                    hitSlop={8}
+                    style={styles.modalCloseBtn}>
+                    <Text style={styles.modalCloseText}>✕</Text>
+                  </Pressable>
+                </View>
+
+                {profile?.role === 'admin' && (
+                  <Pressable
+                    onPress={() => {
+                      setUpdateModalVisible(false);
+                      navigation.navigate('NewProduct', { item: selectedItem });
+                    }}
+                    style={[styles.editDetailsBtn, styles.editDetailsBtnFull]}>
+                    <Text style={styles.editDetailsBtnText}>Edit Product Details</Text>
+                  </Pressable>
+                )}
+
+                {/* Operation chips */}
+                <Text style={styles.filterGroupLabel}>Operation</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
+                  {operations.map(op => (
+                    <Pressable
+                      key={op.value}
+                      onPress={() => setOperationType(op.value)}
+                      style={[styles.chip, operationType === op.value && styles.chipActive]}>
+                      <Text
+                        style={[
+                          styles.chipText,
+                          operationType === op.value && styles.chipTextActive,
+                        ]}>
+                        {op.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+
+                <AppTextInput
+                  keyboardType="number-pad"
+                  label={operationType === 'adjust' ? 'New Quantity' : 'Quantity'}
+                  onChangeText={text => setOperationAmount(text.replace(/[^0-9]/g, ''))}
+                  placeholder={operationType === 'adjust' ? String(selectedItem.quantity) : '0'}
+                  value={operationAmount}
+                />
+
+                {operationType === 'move' ? (
+                  <>
+                    <Text style={styles.filterGroupLabel}>To Warehouse</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
+                      {moveWarehouses.map(wh => (
+                        <Pressable
+                          key={wh.id}
+                          onPress={() => setMoveWarehouseId(wh.id)}
+                          style={[
+                            styles.chip,
+                            (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
+                              styles.chipActive,
+                          ]}>
+                          <Text
+                            style={[
+                              styles.chipText,
+                              (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
+                                styles.chipTextActive,
+                            ]}>
+                            {wh.name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                    <Text style={styles.filterGroupLabel}>To Location</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
+                      {moveLocations.map(loc => (
+                        <Pressable
+                          key={loc.code}
+                          onPress={() => setMoveLocationCode(loc.code)}
+                          style={[
+                            styles.chip,
+                            (moveLocationCode || moveLocations[0]?.code) === loc.code &&
+                              styles.chipActive,
+                          ]}>
+                          <Text
+                            style={[
+                              styles.chipText,
+                              (moveLocationCode || moveLocations[0]?.code) === loc.code &&
+                                styles.chipTextActive,
+                            ]}>
+                            {loc.code}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </>
+                ) : null}
+
+                {operationType === 'adjust' || operationType === 'damaged' ? (
+                  <AppTextInput
+                    label="Reason / Notes"
+                    onChangeText={setOperationReason}
+                    placeholder="Adjustment reason"
+                    value={operationReason}
+                  />
+                ) : null}
+                <AppButton
+                  disabled={!operationAmount}
+                  onPress={() => submitOperation(selectedItem)}
+                  title="Apply Update"
+                />
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </ScreenShell>
   );
 }
@@ -928,15 +979,57 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     color: colors.primary,
   },
-  // ── Update Card ──────────────────────────────────────────────────────────────
-  updateCard: {
+  // ── Update button (header) ───────────────────────────────────────────────────
+  updateActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+  },
+  updateActionBtnText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.surface,
+  },
+  // ── Update Modal ─────────────────────────────────────────────────────────────
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalSheet: {
     backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    maxHeight: '85%',
+    ...shadows.lg,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.accentLight,
-    padding: spacing.lg,
-    marginTop: spacing.md,
-    ...shadows.sm,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.md,
+    color: colors.muted,
   },
   updateHeader: {
     flexDirection: 'row',
@@ -956,6 +1049,9 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.bold,
     fontSize: typography.fontSize.md,
     color: colors.ink,
+  },
+  updateHeaderText: {
+    flex: 1,
   },
   updateItemName: {
     fontFamily: typography.fontFamily.regular,
@@ -988,5 +1084,9 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.semiBold,
     fontSize: 11,
     color: colors.accent,
+  },
+  editDetailsBtnFull: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.md,
   },
 });
