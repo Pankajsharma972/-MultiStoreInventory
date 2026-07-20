@@ -12,14 +12,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
-import { deleteUserAccount } from '../../../services/inventoryRepository';
 import { EmptyState } from '../../../components/EmptyState';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SectionHeader } from '../../../components/SectionHeader';
 import { StatusBadge } from '../../../components/StatusBadge';
 import {
+  deleteUserAccount,
   setUserStoreAssignment,
-  updateUserAccess,
 } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { colors } from '../../../theme/colors';
@@ -92,8 +91,13 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteUserAccount(user.uid);
-              Alert.alert('Done', `${user.name} has been deleted.`);
+              const { authRemoved } = await deleteUserAccount(user, profile);
+              Alert.alert(
+                'Done',
+                authRemoved
+                  ? `${user.name} has been permanently deleted.`
+                  : `${user.name} was removed from the app. Their Firebase Authentication login will be removed once the deleteUser Cloud Function is deployed.`,
+              );
             } catch (error) {
               Alert.alert('Error', error instanceof Error ? error.message : 'Deletion failed');
             }
