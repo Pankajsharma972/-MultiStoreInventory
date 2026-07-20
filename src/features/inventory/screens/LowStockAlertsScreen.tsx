@@ -45,7 +45,7 @@ export function LowStockAlertsScreen({ navigation }: Props) {
 
   return (
     <ScreenShell
-      onBack={navigation.goBack}
+      onBack={navigation.canGoBack() ? navigation.goBack : undefined}
       subtitle="Monitor low stock, critical stock, and out-of-stock items across all stores."
       title="Stock Alerts">
       <View style={styles.summaryRow}>

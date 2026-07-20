@@ -279,9 +279,9 @@ export function InventoryScreen({ navigation }: Props) {
 
   return (
     <ScreenShell
-      onBack={navigation.goBack}
+      onBack={navigation.canGoBack() ? navigation.goBack : undefined}
       subtitle="Search, filter and manage your live inventory."
-      title="Inventory Search">
+      title="Products">
 
       {/* ── Search Bar ─────────────────────────────────────────── */}
       <View style={styles.searchCard}>
