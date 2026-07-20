@@ -20,6 +20,7 @@ export type ActivityAction =
   | 'Warehouse Created'
   | 'Location Created'
   | 'User Access Updated'
+  | 'User Deleted'
   | 'System Setup';
 
 export type UserProfile = {

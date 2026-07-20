@@ -1,7 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
-import functions from '@react-native-firebase/functions';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
-import { collections, db } from './firebase';
+import { collections, db, firebaseFunctions } from './firebase';
 import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelpers';
 import type {
   ActivityAction,
@@ -616,9 +615,42 @@ export async function updateUserAccess(
   });
 }
 
-export async function deleteUserAccount(uid: string): Promise<void> {
-  const callable = functions().httpsCallable('deleteUser');
-  await callable({ uid });
+// Permanently delete a user. The `deleteUser` Cloud Function (Admin SDK) removes
+// the account from Firebase Authentication AND the Firestore users document. If
+// that function is not reachable (e.g. not deployed yet) we still remove the
+// Firestore user document — which clears their store assignments — so the user
+// is deleted from the app, and report that Auth removal is still pending.
+export async function deleteUserAccount(
+  targetUser: UserProfile,
+  currentUser: UserProfile | null,
+): Promise<{ authRemoved: boolean }> {
+  const targetUid = targetUser.uid;
+  if (!targetUid) {
+    throw new Error('This user record has no id and cannot be deleted.');
+  }
+  if (currentUser?.uid && currentUser.uid === targetUid) {
+    throw new Error('You cannot delete your own account.');
+  }
+
+  let authRemoved = false;
+  try {
+    await firebaseFunctions.httpsCallable('deleteUser')({ uid: targetUid });
+    authRemoved = true;
+  } catch {
+    // Cloud Function unavailable — fall back to Firestore-only deletion so the
+    // user (and their store assignments) is still removed from the app.
+    await db.collection(collections.users).doc(targetUid).delete();
+  }
+
+  await addActivity({
+    action: 'User Deleted',
+    detail: authRemoved
+      ? `${targetUser.name} permanently deleted (auth + profile)`
+      : `${targetUser.name} profile deleted (deploy the deleteUser function to remove Auth login)`,
+    user: currentUser,
+  });
+
+  return { authRemoved };
 }
 
 export async function updateUserDetails(
