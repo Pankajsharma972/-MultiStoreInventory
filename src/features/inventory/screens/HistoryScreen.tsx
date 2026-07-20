@@ -43,11 +43,6 @@ function actionIcon(action: string): 'box' | 'transfer' | 'shoppingBag' | 'deliv
 
 export function HistoryScreen({ navigation }: Props) {
   const { profile } = useAuth();
-
-  if (profile?.role !== 'admin') {
-    return null;
-  }
-
   const data = useInventoryData();
   const [query, setQuery] = useState('');
   const [actionFilter, setActionFilter] = useState<ActivityAction | typeof ALL>(ALL);
@@ -68,6 +63,21 @@ export function HistoryScreen({ navigation }: Props) {
       return matchesText && matchesAction && matchesStore;
     });
   }, [actionFilter, data.activity, query, storeFilter]);
+
+  if (profile?.role !== 'admin') {
+    return (
+      <ScreenShell
+        onBack={navigation.canGoBack() ? navigation.goBack : undefined}
+        subtitle="This section is available to administrators only."
+        title="Activity History">
+        <EmptyState
+          icon="history"
+          title="Access restricted"
+          subtitle="Only administrators can view the full activity history."
+        />
+      </ScreenShell>
+    );
+  }
 
   return (
     <ScreenShell

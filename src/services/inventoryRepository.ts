@@ -13,6 +13,7 @@ import type {
   Store,
   StorageLocation,
   UserProfile,
+  UserRole,
   Warehouse,
 } from '../types/models';
 
@@ -610,6 +611,69 @@ export async function updateUserAccess(
   await addActivity({
     action: 'User Access Updated',
     detail: `${targetUser.name} changed to ${payload.role}`,
+    user,
+  });
+}
+
+export async function updateUserDetails(
+  targetUser: UserProfile,
+  payload: { name: string; role: UserRole },
+  user: UserProfile | null,
+) {
+  const trimmedName = payload.name.trim();
+  if (!trimmedName) {
+    throw new Error('Name is required.');
+  }
+  const nextAssignedStoreIds =
+    payload.role === 'admin' ? [] : targetUser.assignedStoreIds || [];
+  await db.collection(collections.users).doc(targetUser.uid).update({
+    name: trimmedName,
+    role: payload.role,
+    assignedStoreIds: nextAssignedStoreIds,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  });
+  await addActivity({
+    action: 'User Access Updated',
+    detail: `${trimmedName} details updated (${payload.role})`,
+    user,
+  });
+}
+
+// Assign or unassign a single store to a staff user. Enforces that a store can
+// only belong to one staff user at a time.
+export async function setUserStoreAssignment(
+  targetUser: UserProfile,
+  storeId: string,
+  assign: boolean,
+  allUsers: UserProfile[],
+  user: UserProfile | null,
+) {
+  const assigned = new Set(targetUser.assignedStoreIds || []);
+
+  if (assign) {
+    const owner = allUsers.find(
+      candidate =>
+        candidate.uid !== targetUser.uid &&
+        candidate.role === 'staff' &&
+        (candidate.assignedStoreIds || []).includes(storeId),
+    );
+    if (owner) {
+      throw new Error(`Already assigned to: ${owner.name}`);
+    }
+    assigned.add(storeId);
+  } else {
+    assigned.delete(storeId);
+  }
+
+  await db.collection(collections.users).doc(targetUser.uid).update({
+    assignedStoreIds: Array.from(assigned),
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  });
+
+  await addActivity({
+    action: 'User Access Updated',
+    detail: `${targetUser.name} ${assign ? 'assigned to' : 'unassigned from'} a store`,
+    storeId,
     user,
   });
 }

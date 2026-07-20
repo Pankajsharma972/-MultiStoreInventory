@@ -1,27 +1,32 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
+import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
 import { colors } from '../../../theme/colors';
 import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
-import type { AppStackParamList } from '../../../navigation/types';
 
 export function ProfileScreen() {
   const { profile, user, signOut } = useAuth();
+  const data = useInventoryData();
   const displayName = profile?.name || user?.displayName || 'User';
   const role = profile?.role === 'admin' ? 'Administrator' : 'Store Staff';
+
+  const assignedStoreNames = data.stores.map(store => store.name).join(', ');
+  const storeAccessValue =
+    profile?.role === 'admin'
+      ? 'All Stores'
+      : assignedStoreNames || 'No store assigned';
 
   const infoRows = [
     { label: 'Email', value: user?.email || '—', icon: 'user' as const },
     {
       label: 'Store Access',
-      value: profile?.role === 'admin' ? 'All Stores' : `${profile?.assignedStoreIds?.length || 0} assigned`,
+      value: storeAccessValue,
       icon: 'store' as const,
     },
     { label: 'Role', value: role, icon: 'layout' as const },

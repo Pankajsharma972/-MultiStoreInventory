@@ -27,6 +27,7 @@ import { BookOrderScreen } from '../features/inventory/screens/BookOrderScreen';
 import { StoresScreen } from '../features/inventory/screens/StoresScreen';
 import { TransferScreen } from '../features/inventory/screens/TransferScreen';
 import { UsersScreen } from '../features/inventory/screens/UsersScreen';
+import { CreateUserScreen } from '../features/inventory/screens/CreateUserScreen';
 import { OperationsScreen } from '../features/inventory/screens/OperationsScreen';
 import { ReportsScreen } from '../features/inventory/screens/ReportsScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
@@ -148,6 +149,7 @@ export function RootNavigator() {
           <AppStack.Screen name="Deliveries" component={DeliveriesScreen} />
           <AppStack.Screen name="History" component={HistoryScreen} />
           <AppStack.Screen name="Users" component={UsersScreen} />
+          <AppStack.Screen name="CreateUser" component={CreateUserScreen} />
           <AppStack.Screen name="Reports" component={ReportsScreen} />
           <AppStack.Screen name="Profile" component={ProfileScreen} />
         </AppStack.Navigator>

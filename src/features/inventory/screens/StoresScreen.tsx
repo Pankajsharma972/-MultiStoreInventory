@@ -8,12 +8,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
 import { BottomSheet } from '../../../components/BottomSheet';
+import { EmptyState } from '../../../components/EmptyState';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SectionHeader } from '../../../components/SectionHeader';
 import {
@@ -64,11 +65,6 @@ function FormSection({
 
 export function StoresScreen({ navigation }: StoresScreenProps) {
   const { profile } = useAuth();
-
-  if (profile?.role !== 'admin') {
-    return null;
-  }
-
   const data = useInventoryData();
   const insets = useSafeAreaInsets();
 
@@ -189,6 +185,21 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
       ],
     );
   };
+
+  if (profile?.role !== 'admin') {
+    return (
+      <ScreenShell
+        onBack={navigation.canGoBack() ? navigation.goBack : undefined}
+        subtitle="This section is available to administrators only."
+        title="Stores & Warehouses">
+        <EmptyState
+          icon="store"
+          title="Access restricted"
+          subtitle="Only administrators can manage stores and warehouses."
+        />
+      </ScreenShell>
+    );
+  }
 
   return (
     <>
