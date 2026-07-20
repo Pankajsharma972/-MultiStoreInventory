@@ -19,6 +19,7 @@ export type AppStackParamList = {
   History: undefined;
   LowStock: undefined;
   Users: undefined;
+  CreateUser: { userId?: string } | undefined;
   Reports: undefined;
   Profile: undefined;
   Operations: undefined;

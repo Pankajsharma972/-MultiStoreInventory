@@ -21,11 +21,6 @@ type Props = NativeStackScreenProps<AppStackParamList, 'Transfer'>;
 
 export function TransferScreen({ navigation }: Props) {
   const { profile } = useAuth();
-
-  if (profile?.role !== 'admin') {
-    return null;
-  }
-
   const data = useInventoryData();
   const [productId, setProductId] = useState('');
   const [toStoreId, setToStoreId] = useState('');
@@ -64,6 +59,21 @@ export function TransferScreen({ navigation }: Props) {
       Alert.alert('Transfer failed', error instanceof Error ? error.message : 'Could not transfer stock.');
     }
   };
+
+  if (profile?.role !== 'admin') {
+    return (
+      <ScreenShell
+        onBack={navigation.canGoBack() ? navigation.goBack : undefined}
+        subtitle="This section is available to administrators only."
+        title="Stock Transfer">
+        <EmptyState
+          icon="transfer"
+          title="Access restricted"
+          subtitle="Only administrators can transfer stock between stores."
+        />
+      </ScreenShell>
+    );
+  }
 
   return (
     <ScreenShell

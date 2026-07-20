@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -12,129 +12,84 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
-import { AppTextInput } from '../../../components/AppTextInput';
 import { BottomSheet } from '../../../components/BottomSheet';
+import { EmptyState } from '../../../components/EmptyState';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SectionHeader } from '../../../components/SectionHeader';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { updateUserAccess } from '../../../services/inventoryRepository';
+import {
+  setUserStoreAssignment,
+  updateUserAccess,
+} from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { colors } from '../../../theme/colors';
 import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { useAuth } from '../../auth/AuthProvider';
-import { getAuthErrorMessage } from '../../auth/authErrors';
 import type { AppStackParamList } from '../../../navigation/types';
-import type { UserProfile, UserRole } from '../../../types/models';
+import type { UserProfile } from '../../../types/models';
 
-// Rename Props to UsersScreenProps to avoid conflicts
 type UsersScreenProps = NativeStackScreenProps<AppStackParamList, 'Users'>;
 
 export function UsersScreen({ navigation }: UsersScreenProps) {
-  const { createUser, profile } = useAuth();
-
-  if (profile?.role !== 'admin') {
-    return null;
-  }
-
+  const { profile } = useAuth();
   const data = useInventoryData();
   const insets = useSafeAreaInsets();
 
-  // Create user form
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('staff');
-  const [assignedStoreIds, setAssignedStoreIds] = useState<string[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
-
-  // Bottom sheet state
   const [sheetUser, setSheetUser] = useState<UserProfile | null>(null);
-
-  // Assign store modal
   const [assignModalVisible, setAssignModalVisible] = useState(false);
-  const [assignTargetUser, setAssignTargetUser] = useState<UserProfile | null>(null);
+  const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
 
-  const toggleNewUserStore = (storeId: string) => {
-    setAssignedStoreIds(cur =>
-      cur.includes(storeId) ? cur.filter(id => id !== storeId) : [...cur, storeId],
-    );
-  };
+  // Live target so the assign modal reflects real-time Firestore updates.
+  const assignTarget = useMemo(
+    () => data.users.find(u => u.uid === assignTargetId) ?? null,
+    [data.users, assignTargetId],
+  );
 
-  const submitNewUser = async () => {
-    setFormError('');
-    setFormSuccess('');
-    setCreating(true);
-    try {
-      await createUser({
-        name,
-        email,
-        password,
-        role,
-        assignedStoreIds: role === 'admin' ? [] : assignedStoreIds,
+  // storeId -> staff user currently holding it (one store, one staff).
+  const storeOwners = useMemo(() => {
+    const map = new Map<string, UserProfile>();
+    data.users.forEach(u => {
+      if (u.role !== 'staff') return;
+      (u.assignedStoreIds || []).forEach(id => {
+        if (!map.has(id)) map.set(id, u);
       });
-      setFormSuccess(`${name.trim()} can now sign in.`);
-      setName('');
-      setEmail('');
-      setPassword('');
-      setRole('staff');
-      setAssignedStoreIds([]);
-    } catch (error) {
-      setFormError(getAuthErrorMessage(error));
-    } finally {
-      setCreating(false);
-    }
-  };
+    });
+    return map;
+  }, [data.users]);
 
   const toggleStore = async (targetUser: UserProfile, storeId: string) => {
-    const assigned = new Set(targetUser.assignedStoreIds || []);
-    if (assigned.has(storeId)) assigned.delete(storeId);
-    else assigned.add(storeId);
+    const assign = !(targetUser.assignedStoreIds || []).includes(storeId);
     try {
-      await updateUserAccess(
-        targetUser,
-        { role: targetUser.role, assignedStoreIds: Array.from(assigned) },
-        profile,
-      );
+      await setUserStoreAssignment(targetUser, storeId, assign, data.users, profile);
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Could not update user.');
-    }
-  };
-
-  const changeRole = async (targetUser: UserProfile, nextRole: UserRole) => {
-    try {
-      await updateUserAccess(
-        targetUser,
-        { role: nextRole, assignedStoreIds: targetUser.assignedStoreIds || [] },
-        profile,
+      Alert.alert(
+        'Store unavailable',
+        error instanceof Error ? error.message : 'Could not update store assignment.',
       );
-    } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Could not update role.');
     }
   };
 
   const openAssignModal = (user: UserProfile) => {
-    setAssignTargetUser(user);
+    setAssignTargetId(user.uid);
     setAssignModalVisible(true);
   };
 
   const confirmDeleteUser = (user: UserProfile) => {
     Alert.alert(
-      'Remove User',
-      `Remove "${user.name}" from all stores? (Note: only store assignments are cleared — Firebase Auth deletion requires backend function.)`,
+      'Delete User',
+      `Remove "${user.name}" from all stores? (Note: only store assignments are cleared — Firebase Auth deletion requires a backend function.)`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove Access',
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             try {
-              await updateUserAccess(user, { role: 'staff', assignedStoreIds: [] }, profile);
+              await updateUserAccess(user, { role: user.role, assignedStoreIds: [] }, profile);
               Alert.alert('Done', `${user.name}'s store access has been revoked.`);
-            } catch (err) {
+            } catch {
               Alert.alert('Error', 'Could not remove user access.');
             }
           },
@@ -143,130 +98,84 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
     );
   };
 
+  if (profile?.role !== 'admin') {
+    return (
+      <ScreenShell
+        onBack={navigation.canGoBack() ? navigation.goBack : undefined}
+        subtitle="This section is available to administrators only."
+        title="User Access">
+        <EmptyState
+          icon="user"
+          title="Access restricted"
+          subtitle="Only administrators can manage users and roles."
+        />
+      </ScreenShell>
+    );
+  }
+
   return (
     <>
       <ScreenShell
-        onBack={navigation.goBack}
-        subtitle="Create users, assign stores, and manage role-based access."
+        onBack={navigation.canGoBack() ? navigation.goBack : undefined}
+        subtitle="View users, edit details, assign stores, and manage access."
         title="User Access">
-
-        {/* ── Create user form ── */}
-        <View style={styles.createCard}>
-          <View style={styles.createHeader}>
-            <View style={styles.createIconWrap}>
-              <AppIcon name="user" size={18} tintColor="#7C3AED" />
-            </View>
-            <Text style={styles.createTitle}>Create User</Text>
-          </View>
-
-          <AppTextInput label="Full Name" onChangeText={setName} placeholder="Staff or admin name" value={name} />
-          <AppTextInput
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            label="Email"
-            onChangeText={setEmail}
-            placeholder="name@company.com"
-            value={email}
-          />
-          <AppTextInput
-            label="Temporary Password"
-            onChangeText={setPassword}
-            placeholder="Minimum 6 characters"
-            secureTextEntry
-            showPasswordToggle
-            value={password}
-          />
-
-          {/* Role chips */}
-          <Text style={styles.chipGroupLabel}>Role</Text>
-          <View style={styles.chipRow}>
-            {(['staff', 'admin'] as UserRole[]).map(r => (
-              <Pressable
-                key={r}
-                onPress={() => setRole(r)}
-                style={[styles.chip, role === r && styles.chipActive]}>
-                <Text style={[styles.chipText, role === r && styles.chipTextActive]}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {role === 'staff' && data.stores.length > 0 && (
-            <View style={styles.storePickerSection}>
-              <Text style={styles.chipGroupLabel}>Assign Stores</Text>
-              <View style={styles.chipRow}>
-                {data.stores.map(store => {
-                  const assigned = assignedStoreIds.includes(store.id);
-                  return (
-                    <Pressable
-                      key={store.id}
-                      onPress={() => toggleNewUserStore(store.id)}
-                      style={[styles.chip, assigned && styles.chipActive]}>
-                      <Text style={[styles.chipText, assigned && styles.chipTextActive]}>
-                        {store.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {formError ? <Text style={styles.error}>{formError}</Text> : null}
-          {formSuccess ? <Text style={styles.success}>{formSuccess}</Text> : null}
-          <AppButton
-            disabled={!name.trim() || !email.trim() || password.length < 6}
-            loading={creating}
-            onPress={submitNewUser}
-            title="Create User"
-          />
-        </View>
-
-        {/* ── Team members ── */}
         <SectionHeader title="Team Members" meta={`${data.users.length} users`} />
         <Text style={styles.longPressHint}>Long press a user to manage access</Text>
 
-        {data.users.map(user => (
-          <Pressable
-            key={user.uid}
-            onLongPress={() => setSheetUser(user)}
-            delayLongPress={400}
-            style={({ pressed }) => [styles.userCard, pressed && styles.userCardPressed]}>
-            <View style={styles.userHeader}>
-              <View style={[styles.avatar, user.role === 'admin' && styles.avatarAdmin]}>
-                <Text style={styles.avatarText}>{user.name.charAt(0).toUpperCase()}</Text>
-              </View>
-              <View style={styles.userInfo}>
-                <Text style={styles.userName}>{user.name}</Text>
-                <Text style={styles.userEmail}>{user.email}</Text>
-              </View>
-              <View style={styles.userRight}>
-                <StatusBadge label={user.role} tone={user.role === 'admin' ? 'info' : 'success'} />
-                <View style={styles.moreHint}>
-                  <AppIcon name="menu" size={14} tintColor={colors.muted} />
+        {data.users.length === 0 ? (
+          <EmptyState
+            icon="user"
+            title="No users yet"
+            subtitle="Tap the + button to create your first user."
+          />
+        ) : (
+          data.users.map(user => (
+            <Pressable
+              key={user.uid}
+              onLongPress={() => setSheetUser(user)}
+              delayLongPress={400}
+              style={({ pressed }) => [styles.userCard, pressed && styles.userCardPressed]}>
+              <View style={styles.userHeader}>
+                <View style={[styles.avatar, user.role === 'admin' && styles.avatarAdmin]}>
+                  <Text style={styles.avatarText}>{user.name.charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={styles.userInfo}>
+                  <Text style={styles.userName}>{user.name}</Text>
+                  <Text style={styles.userEmail}>{user.email}</Text>
+                </View>
+                <View style={styles.userRight}>
+                  <StatusBadge label={user.role} tone={user.role === 'admin' ? 'info' : 'success'} />
+                  <View style={styles.moreHint}>
+                    <AppIcon name="menu" size={14} tintColor={colors.muted} />
+                  </View>
                 </View>
               </View>
-            </View>
 
-            {user.role === 'staff' && (
-              <View style={styles.storesRow}>
-                <AppIcon name="store" size={12} tintColor={colors.muted} />
-                <Text style={styles.storesText}>
-                  {(user.assignedStoreIds || []).length === 0
-                    ? 'No stores assigned'
-                    : (user.assignedStoreIds || [])
-                        .map(id => data.stores.find(s => s.id === id)?.name || id)
-                        .join(', ')}
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        ))}
+              {user.role === 'staff' && (
+                <View style={styles.storesRow}>
+                  <AppIcon name="store" size={12} tintColor={colors.muted} />
+                  <Text style={styles.storesText}>
+                    {(user.assignedStoreIds || []).length === 0
+                      ? 'No stores assigned'
+                      : (user.assignedStoreIds || [])
+                          .map(id => data.stores.find(s => s.id === id)?.name || id)
+                          .join(', ')}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          ))
+        )}
       </ScreenShell>
 
-      {/* ── User bottom sheet ── */}
+      {/* Add user FAB */}
+      <Pressable
+        onPress={() => navigation.navigate('CreateUser')}
+        style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}>
+        <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
+      </Pressable>
+
+      {/* User actions */}
       <BottomSheet
         visible={sheetUser !== null}
         title={sheetUser?.name ?? ''}
@@ -274,26 +183,29 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
         onClose={() => setSheetUser(null)}
         actions={[
           {
-            id: 'assign',
-            label: 'Assign Store',
-            icon: 'store',
+            id: 'edit',
+            label: 'Edit User',
+            icon: 'edit',
             tint: colors.primary,
             bg: colors.cardTintGreen,
-            onPress: () => sheetUser && openAssignModal(sheetUser),
-          },
-          {
-            id: 'role',
-            label: sheetUser?.role === 'admin' ? 'Change to Staff' : 'Change to Admin',
-            icon: 'user',
-            tint: '#7C3AED',
-            bg: colors.cardTintPurple,
             onPress: () =>
-              sheetUser &&
-              changeRole(sheetUser, sheetUser.role === 'admin' ? 'staff' : 'admin'),
+              sheetUser && navigation.navigate('CreateUser', { userId: sheetUser.uid }),
           },
+          ...(sheetUser?.role === 'staff'
+            ? [
+                {
+                  id: 'assign',
+                  label: 'Assign Store',
+                  icon: 'store' as const,
+                  tint: '#7C3AED',
+                  bg: colors.cardTintPurple,
+                  onPress: () => sheetUser && openAssignModal(sheetUser),
+                },
+              ]
+            : []),
           {
             id: 'delete',
-            label: 'Remove Access',
+            label: 'Delete User',
             icon: 'trash',
             destructive: true,
             onPress: () => sheetUser && confirmDeleteUser(sheetUser),
@@ -301,7 +213,7 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
         ]}
       />
 
-      {/* ── Assign store modal ── */}
+      {/* Assign store modal */}
       <Modal
         visible={assignModalVisible}
         transparent
@@ -312,18 +224,23 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
           <View style={[styles.assignModal, { paddingBottom: insets.bottom + spacing.lg }]}>
             <View style={styles.assignModalHandle} />
             <Text style={styles.assignTitle}>Assign Stores</Text>
-            {assignTargetUser ? (
-              <Text style={styles.assignSub}>{assignTargetUser.name}</Text>
-            ) : null}
+            {assignTarget ? <Text style={styles.assignSub}>{assignTarget.name}</Text> : null}
 
             <ScrollView style={styles.assignScroll} showsVerticalScrollIndicator={false}>
               {data.stores.map(store => {
-                const assigned = (assignTargetUser?.assignedStoreIds || []).includes(store.id);
+                const assigned = (assignTarget?.assignedStoreIds || []).includes(store.id);
+                const owner = storeOwners.get(store.id);
+                const takenByOther = Boolean(owner) && owner?.uid !== assignTarget?.uid;
                 return (
                   <Pressable
                     key={store.id}
-                    onPress={() => assignTargetUser && toggleStore(assignTargetUser, store.id)}
-                    style={[styles.assignStoreRow, assigned && styles.assignStoreRowActive]}>
+                    disabled={takenByOther}
+                    onPress={() => assignTarget && toggleStore(assignTarget, store.id)}
+                    style={[
+                      styles.assignStoreRow,
+                      assigned && styles.assignStoreRowActive,
+                      takenByOther && styles.assignStoreRowDisabled,
+                    ]}>
                     <View style={[styles.assignStoreIcon, assigned && styles.assignStoreIconActive]}>
                       <AppIcon
                         name="store"
@@ -331,12 +248,18 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
                         tintColor={assigned ? colors.surface : colors.primary}
                       />
                     </View>
-                    <Text style={[styles.assignStoreName, assigned && styles.assignStoreNameActive]}>
-                      {store.name}
-                    </Text>
-                    {assigned && (
-                      <AppIcon name="check" size={16} tintColor={colors.primary} />
-                    )}
+                    <View style={styles.assignStoreTextWrap}>
+                      <Text
+                        style={[styles.assignStoreName, assigned && styles.assignStoreNameActive]}>
+                        {store.name}
+                      </Text>
+                      {takenByOther ? (
+                        <Text style={styles.assignStoreTaken}>
+                          Already assigned to: {owner?.name}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {assigned && <AppIcon name="check" size={16} tintColor={colors.primary} />}
                   </Pressable>
                 );
               })}
@@ -355,84 +278,6 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  createCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    ...shadows.sm,
-  },
-  createHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  createIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.cardTintPurple,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  createTitle: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.md,
-    color: colors.ink,
-  },
-  chipGroupLabel: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  chipText: {
-    fontFamily: typography.fontFamily.medium,
-    fontSize: typography.fontSize.xs,
-    color: colors.inkSoft,
-  },
-  chipTextActive: {
-    color: colors.surface,
-  },
-  storePickerSection: {
-    marginBottom: spacing.sm,
-  },
-  error: {
-    fontFamily: typography.fontFamily.regular,
-    color: colors.danger,
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.sm,
-  },
-  success: {
-    fontFamily: typography.fontFamily.medium,
-    color: colors.success,
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.sm,
-  },
   longPressHint: {
     fontFamily: typography.fontFamily.regular,
     fontSize: typography.fontSize.xs,
@@ -516,7 +361,19 @@ const styles = StyleSheet.create({
     color: colors.muted,
     flex: 1,
   },
-  // ── Assign modal ──
+  fab: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.lg,
+    elevation: 8,
+  },
+  // Assign modal
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -551,7 +408,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   assignScroll: {
-    maxHeight: 260,
+    maxHeight: 320,
     marginBottom: spacing.md,
   },
   assignStoreRow: {
@@ -570,6 +427,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardTintGreen,
     borderColor: colors.primaryLight,
   },
+  assignStoreRowDisabled: {
+    opacity: 0.55,
+  },
   assignStoreIcon: {
     width: 36,
     height: 36,
@@ -584,15 +444,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
+  assignStoreTextWrap: {
+    flex: 1,
+  },
   assignStoreName: {
     fontFamily: typography.fontFamily.medium,
     fontSize: typography.fontSize.sm,
     color: colors.ink,
-    flex: 1,
   },
   assignStoreNameActive: {
     fontFamily: typography.fontFamily.semiBold,
     color: colors.primaryDark,
+  },
+  assignStoreTaken: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: 11,
+    color: colors.danger,
+    marginTop: 2,
   },
   assignDoneBtn: {
     marginTop: spacing.xs,
