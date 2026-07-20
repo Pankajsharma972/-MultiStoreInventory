@@ -3,7 +3,6 @@ import {
   Alert,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -17,14 +16,7 @@ import { BottomSheet } from '../../../components/BottomSheet';
 import { EmptyState } from '../../../components/EmptyState';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SectionHeader } from '../../../components/SectionHeader';
-import {
-  addActivity,
-  deleteStore,
-  saveLocation,
-  saveStore,
-  saveWarehouse,
-  updateStore,
-} from '../../../services/inventoryRepository';
+import { deleteStore, updateStore } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
 import { colors } from '../../../theme/colors';
@@ -34,115 +26,24 @@ import { typography } from '../../../theme/typography';
 import type { AppStackParamList } from '../../../navigation/types';
 import type { Store } from '../../../types/models';
 
-// Rename Props to StoresScreenProps to avoid conflicts
 type StoresScreenProps = NativeStackScreenProps<AppStackParamList, 'Stores'>;
-
-function FormSection({
-  title,
-  icon,
-  iconBg,
-  iconTint,
-  children,
-}: {
-  title: string;
-  icon: 'store' | 'layout' | 'tag';
-  iconBg: string;
-  iconTint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={styles.formSection}>
-      <View style={styles.formHeader}>
-        <View style={[styles.formIconWrap, { backgroundColor: iconBg }]}>
-          <AppIcon name={icon} size={18} tintColor={iconTint} />
-        </View>
-        <Text style={styles.formTitle}>{title}</Text>
-      </View>
-      {children}
-    </View>
-  );
-}
 
 export function StoresScreen({ navigation }: StoresScreenProps) {
   const { profile } = useAuth();
   const data = useInventoryData();
   const insets = useSafeAreaInsets();
 
-  // Create store form
-  const [storeName, setStoreName] = useState('');
-  const [storeLocation, setStoreLocation] = useState('');
-
-  // Create warehouse form
-  const [selectedStoreId, setSelectedStoreId] = useState('');
-  const [warehouseName, setWarehouseName] = useState('');
-
-  // Create location form
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
-  const [locationCode, setLocationCode] = useState('');
-  const [locationDescription, setLocationDescription] = useState('');
-
-  // Bottom sheet state
+  // Store action bottom sheet
   const [sheetStore, setSheetStore] = useState<Store | null>(null);
+
+  // "Add" bottom sheet (store / warehouse / location)
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
 
   // Edit store modal
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editStoreName, setEditStoreName] = useState('');
   const [editStoreLocation, setEditStoreLocation] = useState('');
   const [editSaving, setEditSaving] = useState(false);
-
-  const activeStoreId = selectedStoreId || data.stores[0]?.id || '';
-  const warehouses = data.warehouses.filter(w => w.storeId === activeStoreId);
-  const activeWarehouseId = selectedWarehouseId || warehouses[0]?.id || '';
-
-  const createStore = async () => {
-    try {
-      await saveStore({ name: storeName, location: storeLocation });
-      await addActivity({ action: 'Store Created', detail: `${storeName} created`, user: profile });
-      setStoreName('');
-      setStoreLocation('');
-      Alert.alert('Saved', 'Store created.');
-    } catch (err) {
-      Alert.alert('Error', `Could not create store: ${(err as Error).message}`);
-    }
-  };
-
-  const createWarehouse = async () => {
-    try {
-      await saveWarehouse({ storeId: activeStoreId, name: warehouseName });
-      await addActivity({
-        action: 'Warehouse Created',
-        detail: `${warehouseName} created`,
-        storeId: activeStoreId,
-        user: profile,
-      });
-      setWarehouseName('');
-      Alert.alert('Saved', 'Warehouse created.');
-    } catch (err) {
-      Alert.alert('Error', `Could not create warehouse: ${(err as Error).message}`);
-    }
-  };
-
-  const createLocation = async () => {
-    try {
-      await saveLocation({
-        storeId: activeStoreId,
-        warehouseId: activeWarehouseId,
-        code: locationCode,
-        description: locationDescription,
-      });
-      await addActivity({
-        action: 'Location Created',
-        detail: `${locationCode} created`,
-        storeId: activeStoreId,
-        user: profile,
-      });
-      setLocationCode('');
-      setLocationDescription('');
-      Alert.alert('Saved', 'Storage location created.');
-    } catch (err) {
-      Alert.alert('Error', `Could not create location: ${(err as Error).message}`);
-    }
-  };
 
   const openEditModal = (store: Store) => {
     setEditStoreName(store.name);
@@ -208,127 +109,102 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
         subtitle="Manage stores, warehouses, and exact rack/bin locations."
         title="Stores & Warehouses">
 
-        <FormSection title="Create Store" icon="store" iconBg={colors.cardTintGreen} iconTint={colors.primary}>
-          <AppTextInput label="Store Name" onChangeText={setStoreName} placeholder="Store 1" value={storeName} />
-          <AppTextInput
-            label="Address / Area"
-            onChangeText={setStoreLocation}
-            placeholder="Market, city"
-            value={storeLocation}
-          />
-          <AppButton disabled={!storeName.trim()} onPress={createStore} title="Add Store" />
-        </FormSection>
+        <SectionHeader title="Current Structure" meta={`${data.stores.length} stores`} />
 
-        {/* Active store selector chips */}
-        {data.stores.length > 0 && (
-          <View style={styles.chipSection}>
-            <Text style={styles.chipLabel}>Active Store</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              {data.stores.map(store => (
+        {data.stores.length === 0 ? (
+          <EmptyState
+            icon="store"
+            title="No stores yet"
+            subtitle="Tap the + button to create your first store."
+          />
+        ) : (
+          <>
+            <Text style={styles.longPressHint}>Long press a store to edit or delete</Text>
+            {data.stores.map(store => {
+              const storeWarehouses = data.warehouses.filter(w => w.storeId === store.id);
+              return (
                 <Pressable
                   key={store.id}
-                  onPress={() => {
-                    setSelectedStoreId(store.id);
-                    setSelectedWarehouseId('');
-                  }}
-                  style={[styles.chip, activeStoreId === store.id && styles.chipActive]}>
-                  <Text style={[styles.chipText, activeStoreId === store.id && styles.chipTextActive]}>
-                    {store.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        <FormSection title="Create Warehouse" icon="layout" iconBg={colors.cardTintBlue} iconTint={colors.accent}>
-          <AppTextInput
-            label="Warehouse Name"
-            onChangeText={setWarehouseName}
-            placeholder="Warehouse 1"
-            value={warehouseName}
-          />
-          <AppButton
-            disabled={!activeStoreId || !warehouseName.trim()}
-            onPress={createWarehouse}
-            title="Add Warehouse"
-          />
-        </FormSection>
-
-        <FormSection title="Create Location" icon="tag" iconBg={colors.cardTintAmber} iconTint={colors.warning}>
-          {/* Warehouse selector chips */}
-          {warehouses.length > 0 && (
-            <View style={styles.chipSection}>
-              <Text style={styles.chipLabel}>Warehouse</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                {warehouses.map(wh => (
-                  <Pressable
-                    key={wh.id}
-                    onPress={() => setSelectedWarehouseId(wh.id)}
-                    style={[styles.chip, activeWarehouseId === wh.id && styles.chipActive]}>
-                    <Text style={[styles.chipText, activeWarehouseId === wh.id && styles.chipTextActive]}>
-                      {wh.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-          <AppTextInput label="Location Code" onChangeText={setLocationCode} placeholder="A1, B2, C3" value={locationCode} />
-          <AppTextInput
-            label="Description"
-            onChangeText={setLocationDescription}
-            placeholder="Top rack, left side"
-            value={locationDescription}
-          />
-          <AppButton
-            disabled={!activeStoreId || !activeWarehouseId || !locationCode.trim()}
-            onPress={createLocation}
-            title="Add Location"
-          />
-        </FormSection>
-
-        <SectionHeader title="Current Structure" meta={`${data.stores.length} stores`} />
-        <Text style={styles.longPressHint}>Long press a store to edit or delete</Text>
-
-        {data.stores.map(store => {
-          const storeWarehouses = data.warehouses.filter(w => w.storeId === store.id);
-          return (
-            <Pressable
-              key={store.id}
-              onLongPress={() => setSheetStore(store)}
-              delayLongPress={400}
-              style={({ pressed }) => [styles.structureCard, pressed && styles.structureCardPressed]}>
-              <View style={styles.structureHeader}>
-                <View style={styles.structureIconWrap}>
-                  <AppIcon name="store" size={18} tintColor={colors.primary} />
-                </View>
-                <View style={styles.structureTitleWrap}>
-                  <Text style={styles.structureName}>{store.name}</Text>
-                  <Text style={styles.structureAddress}>{store.location || 'No address set'}</Text>
-                </View>
-                <View style={styles.moreHint}>
-                  <AppIcon name="menu" size={16} tintColor={colors.muted} />
-                </View>
-              </View>
-              {storeWarehouses.map(warehouse => {
-                const locations = data.locations
-                  .filter(l => l.warehouseId === warehouse.id)
-                  .map(l => l.code);
-                return (
-                  <View key={warehouse.id} style={styles.warehouseRow}>
-                    <AppIcon name="layout" size={14} tintColor={colors.muted} />
-                    <Text style={styles.warehouseText}>
-                      <Text style={styles.warehouseName}>{warehouse.name}: </Text>
-                      {locations.length > 0 ? locations.join(', ') : 'No locations'}
-                    </Text>
+                  onLongPress={() => setSheetStore(store)}
+                  delayLongPress={400}
+                  style={({ pressed }) => [styles.structureCard, pressed && styles.structureCardPressed]}>
+                  <View style={styles.structureHeader}>
+                    <View style={styles.structureIconWrap}>
+                      <AppIcon name="store" size={18} tintColor={colors.primary} />
+                    </View>
+                    <View style={styles.structureTitleWrap}>
+                      <Text style={styles.structureName}>{store.name}</Text>
+                      <Text style={styles.structureAddress}>{store.location || 'No address set'}</Text>
+                    </View>
+                    <View style={styles.moreHint}>
+                      <AppIcon name="menu" size={16} tintColor={colors.muted} />
+                    </View>
                   </View>
-                );
-              })}
-            </Pressable>
-          );
-        })}
+                  {storeWarehouses.length === 0 ? (
+                    <Text style={styles.warehouseText}>No warehouses yet</Text>
+                  ) : (
+                    storeWarehouses.map(warehouse => {
+                      const locations = data.locations
+                        .filter(l => l.warehouseId === warehouse.id)
+                        .map(l => l.code);
+                      return (
+                        <View key={warehouse.id} style={styles.warehouseRow}>
+                          <AppIcon name="layout" size={14} tintColor={colors.muted} />
+                          <Text style={styles.warehouseText}>
+                            <Text style={styles.warehouseName}>{warehouse.name}: </Text>
+                            {locations.length > 0 ? locations.join(', ') : 'No locations'}
+                          </Text>
+                        </View>
+                      );
+                    })
+                  )}
+                </Pressable>
+              );
+            })}
+          </>
+        )}
       </ScreenShell>
+
+      {/* Add (store / warehouse / location) FAB */}
+      <Pressable
+        onPress={() => setAddSheetVisible(true)}
+        style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}>
+        <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
+      </Pressable>
+
+      {/* Add options bottom sheet */}
+      <BottomSheet
+        visible={addSheetVisible}
+        title="Add to structure"
+        subtitle="Create a store, warehouse, or storage location"
+        onClose={() => setAddSheetVisible(false)}
+        actions={[
+          {
+            id: 'store',
+            label: 'Create Store',
+            icon: 'store',
+            tint: colors.primary,
+            bg: colors.cardTintGreen,
+            onPress: () => navigation.navigate('CreateStore'),
+          },
+          {
+            id: 'warehouse',
+            label: 'Create Warehouse',
+            icon: 'layout',
+            tint: colors.accent,
+            bg: colors.cardTintBlue,
+            onPress: () => navigation.navigate('CreateWarehouse'),
+          },
+          {
+            id: 'location',
+            label: 'Create Location',
+            icon: 'tag',
+            tint: colors.warning,
+            bg: colors.cardTintAmber,
+            onPress: () => navigation.navigate('CreateLocation'),
+          },
+        ]}
+      />
 
       {/* Store action bottom sheet */}
       <BottomSheet
@@ -400,71 +276,6 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  // ── Forms ──
-  formSection: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    ...shadows.sm,
-  },
-  formHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  formIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formTitle: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.md,
-    color: colors.ink,
-  },
-  // ── Chips ──
-  chipSection: {
-    marginBottom: spacing.md,
-  },
-  chipLabel: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.sm,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  chipText: {
-    fontFamily: typography.fontFamily.medium,
-    fontSize: typography.fontSize.xs,
-    color: colors.inkSoft,
-  },
-  chipTextActive: {
-    color: colors.surface,
-  },
-  // ── Structure cards ──
   longPressHint: {
     fontFamily: typography.fontFamily.regular,
     fontSize: typography.fontSize.xs,
@@ -542,7 +353,18 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.semiBold,
     color: colors.inkSoft,
   },
-  // ── Edit modal ──
+  fab: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.lg,
+    elevation: 8,
+  },
   editBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

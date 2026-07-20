@@ -23,12 +23,14 @@ export function AuthScaffold({ children, subtitle }: AuthScaffoldProps) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}>
         <ScrollView
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}>
+          <View style={styles.spacer} />
           <View style={styles.heroCard}>
             <View style={styles.logoWrap}>
               <AppIcon name="box" size={28} tintColor={colors.surface} />
@@ -39,6 +41,7 @@ export function AuthScaffold({ children, subtitle }: AuthScaffoldProps) {
             </Text>
           </View>
           <View style={styles.formCard}>{children}</View>
+          <View style={styles.spacer} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -55,8 +58,11 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
     padding: spacing.xl,
+  },
+  spacer: {
+    flex: 1,
+    minHeight: spacing.md,
   },
   heroCard: {
     alignItems: 'center',

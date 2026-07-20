@@ -4,8 +4,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
 import { EmptyState } from '../../../components/EmptyState';
+import { FilterChips } from '../../../components/FilterChips';
 import { ScreenShell } from '../../../components/ScreenShell';
-import { SelectPill } from '../../../components/SelectPill';
 import { readableDate } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
@@ -94,7 +94,7 @@ export function HistoryScreen({ navigation }: Props) {
         />
       </View>
 
-      <SelectPill
+      <FilterChips
         label="Store Filter"
         onChange={value => setStoreFilter(value === ALL ? '' : value)}
         options={[
@@ -103,7 +103,7 @@ export function HistoryScreen({ navigation }: Props) {
         ]}
         value={storeFilter || ALL}
       />
-      <SelectPill
+      <FilterChips
         label="Action Filter"
         onChange={value => setActionFilter(value as ActivityAction | typeof ALL)}
         options={actionFilters.map(filter => ({ label: filter.label, value: filter.value }))}

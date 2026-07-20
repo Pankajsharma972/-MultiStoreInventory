@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, View, Pressable } from 'react-native';
+import { StyleSheet, Text, View, Pressable } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
+import { FilterChips } from '../../../components/FilterChips';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SelectPill } from '../../../components/SelectPill';
 import { StatusBadge } from '../../../components/StatusBadge';
@@ -46,7 +47,7 @@ export function OrdersScreen({ navigation }: Props) {
       onBack={navigation.canGoBack() ? navigation.goBack : undefined}
       subtitle="Filter pending, processing, completed, or cancelled customer orders."
       title="Pending Orders List">
-      <SelectPill
+      <FilterChips
         label="Store Filter"
         onChange={value => setStoreId(value === ALL ? '' : value)}
         options={[
@@ -55,7 +56,7 @@ export function OrdersScreen({ navigation }: Props) {
         ]}
         value={storeId || ALL}
       />
-      <SelectPill
+      <FilterChips
         label="Order Status"
         onChange={value => setStatusFilter(value as OrderStatus | typeof ALL)}
         options={[
