@@ -1,4 +1,5 @@
 import firestore from '@react-native-firebase/firestore';
+import functions from '@react-native-firebase/functions';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { collections, db } from './firebase';
 import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelpers';
@@ -613,6 +614,11 @@ export async function updateUserAccess(
     detail: `${targetUser.name} changed to ${payload.role}`,
     user,
   });
+}
+
+export async function deleteUserAccount(uid: string): Promise<void> {
+  const callable = functions().httpsCallable('deleteUser');
+  await callable({ uid });
 }
 
 export async function updateUserDetails(

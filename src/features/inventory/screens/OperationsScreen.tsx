@@ -109,14 +109,14 @@ export function OperationsScreen({ navigation }: Props) {
       iconBg: colors.cardTintGreen,
       iconTint: colors.primary,
     },
-    {
-      title: 'Stock Transfer',
-      route: 'Transfer',
-      subtitle: 'Transfer items between warehouses.',
-      icon: 'transfer',
-      iconBg: colors.cardTintPurple,
-      iconTint: '#7C3AED',
-    },
+    // {
+    //   title: 'Stock Transfer',
+    //   route: 'Transfer',
+    //   subtitle: 'Transfer items between warehouses.',
+    //   icon: 'transfer',
+    //   iconBg: colors.cardTintPurple,
+    //   iconTint: '#7C3AED',
+    // },
     {
       title: 'Pending Deliveries',
       route: 'Deliveries',

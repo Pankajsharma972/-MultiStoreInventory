@@ -19,7 +19,7 @@ import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { useInventoryData } from '../../../services/useInventoryData';
 import type { AppStackParamList } from '../../../navigation/types';
-
+import { useAuth } from '../../auth/AuthProvider';
 type Props = NativeStackScreenProps<AppStackParamList, 'StaffDashboard'>;
 
 function getGreeting() {
@@ -31,6 +31,7 @@ function getGreeting() {
 }
 
 export function StaffDashboardScreen({ navigation }: Props) {
+  const { profile } = useAuth();
   const data = useInventoryData();
 
   const totalUnits = useMemo(
@@ -70,8 +71,7 @@ export function StaffDashboardScreen({ navigation }: Props) {
         rolePill="Staff"
       />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <StoreFilterPill label={storeLabel} />
-
+       
         {data.error ? (
           <View style={styles.errorBox}>
             <AppIcon name="alertCircle" size={18} tintColor={colors.danger} />
@@ -83,8 +83,9 @@ export function StaffDashboardScreen({ navigation }: Props) {
         ) : null}
 
         <View style={styles.greetingWrap}>
-          <Text style={styles.overline}>TODAY AT YOUR STORE</Text>
-          <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+      <Text style={styles.greeting}>
+  {getGreeting()}, {profile?.name ?? 'User'} 👋
+</Text>
         </View>
 
         {data.loading ? (

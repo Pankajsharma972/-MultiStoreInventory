@@ -221,8 +221,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let secondaryApp: any = null;
 
         try {
+          const secondaryAppOptions = {
+            ...firebase.app().options,
+            databaseURL: `https://${firebase.app().options.projectId}.firebaseio.com`,
+          };
           secondaryApp = await firebase.initializeApp(
-            firebase.app().options,
+            secondaryAppOptions,
             secondaryAppName,
           );
           console.log('✅ Secondary app initialized');

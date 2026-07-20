@@ -19,7 +19,7 @@ import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { useInventoryData } from '../../../services/useInventoryData';
 import type { AppStackParamList } from '../../../navigation/types';
-
+import { useAuth } from '../../auth/AuthProvider';
 type Props = NativeStackScreenProps<AppStackParamList, 'AdminDashboard'>;
 
 function getGreeting() {
@@ -32,7 +32,7 @@ function getGreeting() {
 
 export function AdminDashboardScreen({ navigation }: Props) {
   const data = useInventoryData();
-
+const { profile } = useAuth();
   const totalUnits = useMemo(
     () => data.inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
     [data.inventory],
@@ -63,7 +63,7 @@ export function AdminDashboardScreen({ navigation }: Props) {
         rolePill="Admin"
       />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <StoreFilterPill label={`All ${data.stores.length} Stores`} />
+     
 
         {data.error ? (
           <View style={styles.errorBox}>
@@ -76,8 +76,9 @@ export function AdminDashboardScreen({ navigation }: Props) {
         ) : null}
 
         <View style={styles.greetingWrap}>
-          <Text style={styles.overline}>OWNER OVERVIEW</Text>
-          <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+         <Text style={styles.greeting}>
+  {getGreeting()}, {profile?.name || 'Admin'} 👋
+</Text>
         </View>
 
         {data.loading ? (

@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
-import { BottomSheet } from '../../../components/BottomSheet';
+import { deleteUserAccount } from '../../../services/inventoryRepository';
 import { EmptyState } from '../../../components/EmptyState';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SectionHeader } from '../../../components/SectionHeader';
@@ -29,7 +29,7 @@ import { typography } from '../../../theme/typography';
 import { useAuth } from '../../auth/AuthProvider';
 import type { AppStackParamList } from '../../../navigation/types';
 import type { UserProfile } from '../../../types/models';
-
+import { BottomSheet } from '../../../components/BottomSheet';
 type UsersScreenProps = NativeStackScreenProps<AppStackParamList, 'Users'>;
 
 export function UsersScreen({ navigation }: UsersScreenProps) {
@@ -77,9 +77,14 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
   };
 
   const confirmDeleteUser = (user: UserProfile) => {
+    // Prevent deleting the currently logged‑in admin
+    if (profile?.uid === user.uid) {
+      Alert.alert('Error', 'You cannot delete your own account.');
+      return;
+    }
     Alert.alert(
       'Delete User',
-      `Remove "${user.name}" from all stores? (Note: only store assignments are cleared — Firebase Auth deletion requires a backend function.)`,
+      `Delete "${user.name}" permanently?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -87,16 +92,17 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await updateUserAccess(user, { role: user.role, assignedStoreIds: [] }, profile);
-              Alert.alert('Done', `${user.name}'s store access has been revoked.`);
-            } catch {
-              Alert.alert('Error', 'Could not remove user access.');
+              await deleteUserAccount(user.uid);
+              Alert.alert('Done', `${user.name} has been deleted.`);
+            } catch (error) {
+              Alert.alert('Error', error instanceof Error ? error.message : 'Deletion failed');
             }
           },
         },
       ],
     );
   };
+
 
   if (profile?.role !== 'admin') {
     return (
@@ -116,9 +122,8 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
   return (
     <>
       <ScreenShell
-        onBack={navigation.canGoBack() ? navigation.goBack : undefined}
-        subtitle="View users, edit details, assign stores, and manage access."
-        title="User Access">
+       onBack={navigation.canGoBack() ? navigation.goBack : undefined}
+  title="User Access">
         <SectionHeader title="Team Members" meta={`${data.users.length} users`} />
         <Text style={styles.longPressHint}>Long press a user to manage access</Text>
 

@@ -26,20 +26,21 @@ export function ScreenShell({
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
-        <View style={styles.headerCard}>
-          <View style={styles.headerTop}>
-            {onBack ? (
-              <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-                <AppIcon name="arrowLeft" size={20} tintColor={colors.ink} />
-              </Pressable>
-            ) : (
-              <View style={styles.backPlaceholder} />
-            )}
-            {rightAction ? rightAction : <View style={styles.backPlaceholder} />}
-          </View>
-          <Text style={styles.title}>{title}</Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-        </View>
+     <View style={styles.headerCard}>
+  <View style={styles.headerRow}>
+    {onBack ? (
+      <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
+        <AppIcon name="arrowLeft" size={20} tintColor={colors.ink} />
+      </Pressable>
+    ) : (
+      <View style={styles.backPlaceholder} />
+    )}
+
+    <Text style={styles.title}>{title}</Text>
+
+    {rightAction ? rightAction : <View style={styles.backPlaceholder} />}
+  </View>
+</View>
         {children}
       </ScrollView>
     </SafeAreaView>
@@ -100,12 +101,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     ...shadows.sm,
   },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
+headerRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
   backButton: {
     width: 40,
     height: 40,
@@ -119,10 +118,12 @@ const styles = StyleSheet.create({
     height: 40,
   },
   title: {
-    color: colors.ink,
-    fontFamily: typography.fontFamily.bold,
-    fontSize: typography.fontSize.xxl,
-    letterSpacing: -0.5,
+  flex: 1,
+  color: colors.ink,
+  fontFamily: typography.fontFamily.bold,
+  fontSize: typography.fontSize.lg,
+  textAlign: 'center',
+  marginHorizontal: spacing.md,
   },
   subtitle: {
     color: colors.muted,
