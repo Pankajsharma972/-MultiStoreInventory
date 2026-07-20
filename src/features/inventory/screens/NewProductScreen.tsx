@@ -12,8 +12,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
+import { Dropdown } from '../../../components/Dropdown';
 import { ScreenShell } from '../../../components/ScreenShell';
-import { SelectPill } from '../../../components/SelectPill';
 import { useAuth } from '../../auth/AuthProvider';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { collections, db } from '../../../services/firebase';
@@ -282,29 +282,31 @@ export function NewProductScreen({ route, navigation }: Props) {
                     )}
                   </View>
 
-                  <SelectPill
+                  <Dropdown
                     label="Store *"
+                    placeholder="Select a store"
                     value={loc.storeId}
                     onChange={val => handleUpdateLocation(index, { storeId: val })}
                     options={data.stores.map(s => ({ label: s.name, value: s.id }))}
+                    emptyText="No stores — create one in Stores"
                   />
 
-                  <SelectPill
+                  <Dropdown
                     label="Warehouse *"
+                    placeholder="Select a warehouse"
                     value={loc.warehouseId}
                     onChange={val => handleUpdateLocation(index, { warehouseId: val })}
                     options={warehouses.map(w => ({ label: w.name, value: w.id }))}
+                    emptyText="No warehouses in this store"
                   />
 
-                  <SelectPill
+                  <Dropdown
                     label="Rack / Bin / Location *"
+                    placeholder="Select a location"
                     value={loc.locationCode}
                     onChange={val => handleUpdateLocation(index, { locationCode: val })}
-                    options={
-                      locationsList.length > 0
-                        ? locationsList.map(l => ({ label: l.code, value: l.code }))
-                        : [{ label: 'No locations — create in Stores', value: '' }]
-                    }
+                    options={locationsList.map(l => ({ label: l.code, value: l.code }))}
+                    emptyText="No locations — create in Stores"
                   />
 
                   <View style={styles.qtyContainer}>

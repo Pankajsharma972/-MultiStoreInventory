@@ -12,6 +12,9 @@ export type AppStackParamList = {
   Inventory: undefined;
   NewProduct: { item?: any } | undefined;
   Stores: undefined;
+  CreateStore: undefined;
+  CreateWarehouse: { storeId?: string } | undefined;
+  CreateLocation: { storeId?: string } | undefined;
   Transfer: undefined;
   Orders: undefined;
   BookOrder: undefined;

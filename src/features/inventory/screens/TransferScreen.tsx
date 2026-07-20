@@ -6,8 +6,8 @@ import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
 import { EmptyState } from '../../../components/EmptyState';
 import { ScreenShell } from '../../../components/ScreenShell';
+import { Dropdown } from '../../../components/Dropdown';
 import { SectionHeader } from '../../../components/SectionHeader';
-import { SelectPill } from '../../../components/SelectPill';
 import { createTransfer, readableDate } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
@@ -88,14 +88,16 @@ export function TransferScreen({ navigation }: Props) {
           <Text style={styles.formTitle}>New Transfer</Text>
         </View>
 
-        <SelectPill
+        <Dropdown
           label="Product"
+          placeholder="Select a product"
           onChange={setProductId}
           options={data.inventory.map(row => ({
             label: `${row.name} (${row.quantity}) @ ${row.locationCode}`,
             value: row.id,
           }))}
           value={item?.id || ''}
+          emptyText="No inventory available"
         />
 
         {item ? (
@@ -114,8 +116,9 @@ export function TransferScreen({ navigation }: Props) {
           </View>
         ) : null}
 
-        <SelectPill
+        <Dropdown
           label="To Store"
+          placeholder="Select a store"
           onChange={value => {
             setToStoreId(value);
             setToWarehouseId('');
@@ -123,24 +126,29 @@ export function TransferScreen({ navigation }: Props) {
           }}
           options={data.stores.map(store => ({ label: store.name, value: store.id }))}
           value={activeToStoreId}
+          emptyText="No stores available"
         />
-        <SelectPill
+        <Dropdown
           label="To Warehouse"
+          placeholder="Select a warehouse"
           onChange={value => {
             setToWarehouseId(value);
             setLocationCode('');
           }}
           options={toWarehouses.map(warehouse => ({ label: warehouse.name, value: warehouse.id }))}
           value={activeToWarehouseId}
+          emptyText="No warehouses in this store"
         />
-        <SelectPill
+        <Dropdown
           label="To Location"
+          placeholder="Select a location"
           onChange={setLocationCode}
           options={Array.from(new Set(toLocationOptions.map(l => l.code))).map(code => ({
             label: code,
             value: code,
           }))}
           value={locationCode || toLocationOptions[0]?.code || ''}
+          emptyText="No locations in this warehouse"
         />
         <AppTextInput
           keyboardType="number-pad"

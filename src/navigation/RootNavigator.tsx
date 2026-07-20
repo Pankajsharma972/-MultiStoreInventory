@@ -25,6 +25,9 @@ import { NewProductScreen } from '../features/inventory/screens/NewProductScreen
 import { OrdersScreen } from '../features/inventory/screens/OrdersScreen';
 import { BookOrderScreen } from '../features/inventory/screens/BookOrderScreen';
 import { StoresScreen } from '../features/inventory/screens/StoresScreen';
+import { CreateStoreScreen } from '../features/inventory/screens/CreateStoreScreen';
+import { CreateWarehouseScreen } from '../features/inventory/screens/CreateWarehouseScreen';
+import { CreateLocationScreen } from '../features/inventory/screens/CreateLocationScreen';
 import { TransferScreen } from '../features/inventory/screens/TransferScreen';
 import { UsersScreen } from '../features/inventory/screens/UsersScreen';
 import { CreateUserScreen } from '../features/inventory/screens/CreateUserScreen';
@@ -145,6 +148,9 @@ export function RootNavigator() {
           <AppStack.Screen name="NewProduct" component={NewProductScreen} />
           <AppStack.Screen name="BookOrder" component={BookOrderScreen} />
           <AppStack.Screen name="Stores" component={StoresScreen} />
+          <AppStack.Screen name="CreateStore" component={CreateStoreScreen} />
+          <AppStack.Screen name="CreateWarehouse" component={CreateWarehouseScreen} />
+          <AppStack.Screen name="CreateLocation" component={CreateLocationScreen} />
           <AppStack.Screen name="Transfer" component={TransferScreen} />
           <AppStack.Screen name="Deliveries" component={DeliveriesScreen} />
           <AppStack.Screen name="History" component={HistoryScreen} />

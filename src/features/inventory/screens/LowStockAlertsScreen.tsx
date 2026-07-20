@@ -3,8 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
+import { FilterChips } from '../../../components/FilterChips';
 import { ScreenShell } from '../../../components/ScreenShell';
-import { SelectPill } from '../../../components/SelectPill';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { getStockAlertLevel, stockAlertLabel } from '../../../utils/inventoryHelpers';
@@ -66,7 +66,7 @@ export function LowStockAlertsScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <SelectPill
+      <FilterChips
         label="Store Filter"
         onChange={value => setStoreFilter(value === ALL ? '' : value)}
         options={[
@@ -75,7 +75,7 @@ export function LowStockAlertsScreen({ navigation }: Props) {
         ]}
         value={storeFilter || ALL}
       />
-      <SelectPill
+      <FilterChips
         label="Alert Level"
         onChange={value => setAlertFilter(value as StockAlertLevel | typeof ALL)}
         options={alertFilters.map(filter => ({ label: filter.label, value: filter.value }))}
