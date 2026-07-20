@@ -556,7 +556,15 @@ export function InventoryScreen({ navigation }: Props) {
                   <AppIcon name="box" size={16} tintColor={colors.primary} />
                   <Text style={styles.itemName}>{item.name}</Text>
                 </View>
-                <Text style={[styles.itemQty, alertLevel !== 'ok' && styles.itemQtyAlert]}>{item.quantity}</Text>
+                <View style={styles.itemHeaderRight}>
+                  <Text style={[styles.itemQty, alertLevel !== 'ok' && styles.itemQtyAlert]}>{item.quantity}</Text>
+                  <Pressable
+                    onPress={() => openUpdateModal(item)}
+                    hitSlop={8}
+                    style={styles.cardEditBtn}>
+                    <AppIcon name="edit" size={16} tintColor={colors.accent} />
+                  </Pressable>
+                </View>
               </View>
               <View style={styles.metaRow}>
                 <AppIcon name="store" size={12} tintColor={colors.muted} />
@@ -571,7 +579,7 @@ export function InventoryScreen({ navigation }: Props) {
               {isSelected ? (
                 <View style={styles.selectedBadge}>
                   <AppIcon name="check" size={12} tintColor={colors.primary} />
-                  <Text style={styles.selectedText}>Selected · tap Update</Text>
+                  <Text style={styles.selectedText}>Selected</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -935,6 +943,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
+  },
+  itemHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  cardEditBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: colors.cardTintBlue,
+    borderWidth: 1,
+    borderColor: colors.accentLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   itemTitleWrap: {
     flexDirection: 'row',
