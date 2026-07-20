@@ -28,6 +28,7 @@ build/
 .idea
 .gradle
 local.properties
+google-services.json
 *.iml
 *.hprof
 .cxx/
@@ -38,8 +39,11 @@ local.properties
 # node.js
 #
 node_modules/
+.pnpm-store/
 npm-debug.log
 yarn-error.log
+metro.log
+metro.err.log
 
 # fastlane
 #
