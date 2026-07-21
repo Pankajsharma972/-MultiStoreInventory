@@ -13,16 +13,19 @@ import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
 import { Dropdown } from '../../../components/Dropdown';
+import { PhotoPickerField } from '../../../components/PhotoPickerField';
 import { ScreenShell } from '../../../components/ScreenShell';
+import { SelectPill } from '../../../components/SelectPill';
 import { useAuth } from '../../auth/AuthProvider';
 import { useInventoryData } from '../../../services/useInventoryData';
+import { glazeLabel, glazeOptions } from '../../../utils/inventoryHelpers';
 import { collections, db } from '../../../services/firebase';
 import { colors } from '../../../theme/colors';
 import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import type { AppStackParamList } from '../../../navigation/types';
-import type { InventoryItem } from '../../../types/models';
+import type { GlazeOption, InventoryItem } from '../../../types/models';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'NewProduct'>;
 
@@ -41,8 +44,12 @@ export function NewProductScreen({ route, navigation }: Props) {
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
+  const [brand, setBrand] = useState('');
+  const [glaze, setGlaze] = useState<GlazeOption | ''>('');
   const [size, setSize] = useState('');
   const [sku, setSku] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [editMinimum, setEditMinimum] = useState('1');
   const [saving, setSaving] = useState(false);
 
   // Dynamic location rows (only for creation mode)
@@ -55,8 +62,12 @@ export function NewProductScreen({ route, navigation }: Props) {
     if (editingItem) {
       setName(editingItem.name);
       setCategory(editingItem.category);
+      setBrand(editingItem.brand || '');
+      setGlaze((editingItem.glaze as GlazeOption) || '');
       setSize(editingItem.size || '');
       setSku(editingItem.sku || '');
+      setPhotoUrl(editingItem.photoUrl || '');
+      setEditMinimum(String(editingItem.minimumQuantity ?? 1));
     }
   }, [editingItem]);
 
@@ -146,15 +157,19 @@ export function NewProductScreen({ route, navigation }: Props) {
         await db.collection(collections.inventory).doc(editingItem.id).update({
           name: name.trim(),
           category: category.trim(),
+          brand: brand.trim(),
+          glaze,
           size: size.trim(),
           sku: sku.trim(),
+          photoUrl: photoUrl.trim(),
+          minimumQuantity: Number(editMinimum || 0),
           updatedAt: firestore.FieldValue.serverTimestamp(),
         });
 
         // Add activity log
         await db.collection(collections.activityLogs).add({
           action: 'Product Updated',
-          detail: `Product "${editingItem.name}" updated (name, category, size, SKU)`,
+          detail: `Product "${editingItem.name}" updated (details, brand, glaze, photo, threshold)`,
           storeId: editingItem.storeId,
           createdBy: profile?.name || profile?.email || 'System',
           createdAt: firestore.FieldValue.serverTimestamp(),
@@ -175,8 +190,11 @@ export function NewProductScreen({ route, navigation }: Props) {
           batch.set(docRef, {
             name: name.trim(),
             category: category.trim(),
+            brand: brand.trim(),
+            glaze,
             size: size.trim(),
             sku: sku.trim(),
+            photoUrl: photoUrl.trim(),
             storeId: loc.storeId,
             warehouseId: loc.warehouseId,
             locationCode: loc.locationCode.toUpperCase(),
@@ -239,6 +257,20 @@ export function NewProductScreen({ route, navigation }: Props) {
           />
 
           <AppTextInput
+            label="Brand / Company"
+            onChangeText={setBrand}
+            placeholder="e.g. Kajaria, Somany"
+            value={brand}
+          />
+
+          <SelectPill
+            label="Glaze / Finish"
+            onChange={val => setGlaze(val === glaze ? '' : (val as GlazeOption))}
+            options={glazeOptions.map(option => ({ label: glazeLabel(option), value: option }))}
+            value={glaze}
+          />
+
+          <AppTextInput
             label="Size"
             onChangeText={setSize}
             placeholder="e.g. 34, XL, L"
@@ -251,6 +283,18 @@ export function NewProductScreen({ route, navigation }: Props) {
             placeholder="e.g. SKU-12345"
             value={sku}
           />
+
+          {editingItem ? (
+            <AppTextInput
+              keyboardType="number-pad"
+              label="Min Stock Threshold"
+              onChangeText={val => setEditMinimum(val.replace(/[^0-9]/g, ''))}
+              placeholder="1"
+              value={editMinimum}
+            />
+          ) : null}
+
+          <PhotoPickerField value={photoUrl} onChange={setPhotoUrl} required />
         </View>
 
         {!editingItem ? (

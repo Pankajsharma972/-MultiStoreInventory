@@ -33,6 +33,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow taking photos of designs to attach to products.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow choosing design photos from your gallery to attach to products.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string/>
 	<key>UILaunchStoryboardName</key>

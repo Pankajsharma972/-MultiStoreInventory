@@ -4,6 +4,9 @@ export type StockAlertLevel = 'ok' | 'low' | 'critical' | 'out_of_stock';
 
 export type StockOperationType = 'receive' | 'adjust' | 'move' | 'damaged';
 
+// Glaze / finish of a design product.
+export type GlazeOption = 'glossy' | 'matte' | 'carving';
+
 export type ActivityAction =
   | 'Product Created'
   | 'Product Updated'
@@ -59,8 +62,11 @@ export type InventoryItem = {
   id: string;
   name: string;
   category: string;
+  brand?: string;
+  glaze?: GlazeOption | '';
   size?: string;
   sku?: string;
+  photoUrl?: string;
   storeId: string;
   warehouseId: string;
   locationCode: string;
@@ -84,16 +90,38 @@ export type StockTransfer = {
   createdBy?: string;
 };
 
-export type OrderStatus = 'pending' | 'processing' | 'completed' | 'cancelled';
-export type DeliveryStatus = 'pending' | 'out_for_delivery' | 'delivered' | 'cancelled';
+// A single order can contain multiple designs. The lifecycle a salesperson and
+// the delivery person move an order through:
+//   ordered -> billed -> out_for_delivery -> delivered  (or cancelled)
+export type OrderStatus =
+  | 'ordered'
+  | 'billed'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'cancelled';
+
+// Deliveries follow the same lifecycle as their order.
+export type DeliveryStatus = OrderStatus;
+
+export type OrderLineItem = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  brand?: string;
+  size?: string;
+  photoUrl?: string;
+};
 
 export type CustomerOrder = {
   id: string;
   customerName: string;
   customerPhone?: string;
+  // A summary of the first line item is kept on the order for backwards
+  // compatibility and simple lists; `items` holds the full multi-design order.
   productId: string;
   productName: string;
   quantity: number;
+  items?: OrderLineItem[];
   storeId: string;
   status: OrderStatus;
   deliveryStatus: DeliveryStatus;
@@ -107,6 +135,7 @@ export type PendingDelivery = {
   customerName: string;
   productName: string;
   quantity: number;
+  items?: OrderLineItem[];
   storeId: string;
   status: DeliveryStatus;
   expectedDeliveryDate?: string;
