@@ -1,6 +1,7 @@
 import firestore from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { collections, db, firebaseFunctions, firebaseStorage } from './firebase';
+
 import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelpers';
 import type {
   ActivityAction,
@@ -24,12 +25,21 @@ export async function uploadProductPhoto(localUri: string): Promise<string> {
   if (!localUri) {
     throw new Error('No image selected.');
   }
-  const extension = localUri.split('.').pop()?.split('?')[0] || 'jpg';
+  // Remove file:// scheme if present; for content URIs, Firebase Storage can handle them directly on Android
+  const cleanedUri = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
+  const extension = cleanedUri.split('.').pop()?.split('?')[0] || 'jpg';
   const path = `product-photos/${Date.now()}-${Math.round(Math.random() * 1e6)}.${extension}`;
   const ref = firebaseStorage.ref(path);
-  await ref.putFile(localUri);
+  try {
+    await ref.putFile(cleanedUri);
+  } catch (e) {
+    console.error('Firebase putFile failed', e);
+    throw e;
+  }
   return ref.getDownloadURL();
 }
+
+
 
 type Doc<T> = T & { id: string };
 

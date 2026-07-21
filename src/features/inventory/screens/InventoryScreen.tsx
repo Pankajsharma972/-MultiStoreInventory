@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   Alert,
   Modal,
@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Text,
   View,
+  TextInput,
+  FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -85,7 +87,11 @@ export function InventoryScreen({ navigation }: Props) {
     dispatch(setInventoryFilter({ key: 'location', value }));
   const setLowStockOnly = (value: boolean) =>
     dispatch(setInventoryFilter({ key: 'lowStockOnly', value }));
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  
+  const [filterPopupVisible, setFilterPopupVisible] = useState(false);
+  const filterButtonRef = useRef<View>(null);
+  const [filterButtonLayout, setFilterButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  
   const [operationType, setOperationType] = useState<StockOperationType>('receive');
   const [operationAmount, setOperationAmount] = useState('');
   const [operationReason, setOperationReason] = useState('');
@@ -96,8 +102,6 @@ export function InventoryScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
 
   // Godowns (warehouses) belonging to the store selected in the filter bar.
-  // They only surface once a store chip is active, so godowns appear under
-  // their store.
   const filterWarehouses = data.warehouses.filter(
     warehouse => warehouse.storeId === storeId,
   );
@@ -235,6 +239,210 @@ export function InventoryScreen({ navigation }: Props) {
     setUpdateModalVisible(true);
   };
 
+  // Filter option handler - applies filter and closes popup
+  const handleFilterSelect = (action: () => void) => {
+    action();
+    setFilterPopupVisible(false);
+  };
+
+  // Get selected store name
+  const selectedStoreName = data.stores.find(s => s.id === storeId)?.name || 'All Stores';
+
+  // Filter Popup Component
+  const FilterPopup = () => (
+    <View 
+      style={[
+        styles.filterPopup,
+        {
+          top: filterButtonLayout.y + filterButtonLayout.height + 8,
+          right: 0,
+          width: 300,
+        }
+      ]}
+    >
+      <View style={[styles.filterPopupArrow, { right: 16 }]} />
+      
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        style={styles.filterPopupScroll}
+        contentContainerStyle={styles.filterPopupContent}>
+        
+        {/* Store filter - Dropdown style with list */}
+        <View style={styles.filterPopupGroup}>
+          <View style={styles.filterPopupLabelRow}>
+            <Text style={styles.filterPopupLabel}>Store</Text>
+            <Text style={styles.filterPopupSelectedValue}>{selectedStoreName}</Text>
+          </View>
+          
+          {/* Store list with scrolling */}
+          <View style={styles.storeListContainer}>
+            <ScrollView 
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.storeListContent}>
+              <Pressable
+                onPress={() => handleFilterSelect(() => setStoreId(''))}
+                style={[styles.storeItem, storeId === '' && styles.storeItemActive]}>
+                <Text style={[styles.storeItemText, storeId === '' && styles.storeItemTextActive]}>
+                  All Stores
+                </Text>
+              </Pressable>
+              {data.stores.map(store => (
+                <Pressable
+                  key={store.id}
+                  onPress={() => handleFilterSelect(() => setStoreId(store.id === storeId ? '' : store.id))}
+                  style={[styles.storeItem, storeId === store.id && styles.storeItemActive]}>
+                  <Text 
+                    style={[styles.storeItemText, storeId === store.id && styles.storeItemTextActive]}
+                    numberOfLines={1}>
+                    {store.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+
+        {/* Brand filter */}
+        {brands.length > 0 && (
+          <View style={styles.filterPopupGroup}>
+            <Text style={styles.filterPopupLabel}>Brand</Text>
+            <View style={styles.filterPopupOptions}>
+              <Pressable
+                onPress={() => handleFilterSelect(() => setBrandFilter(''))}
+                style={[styles.filterPopupOptionSmall, brandFilter === '' && styles.filterPopupOptionActive]}>
+                <Text style={[styles.filterPopupOptionTextSmall, brandFilter === '' && styles.filterPopupOptionTextActive]}>
+                  All
+                </Text>
+              </Pressable>
+              {brands.slice(0, 4).map(b => (
+                <Pressable
+                  key={b}
+                  onPress={() => handleFilterSelect(() => setBrandFilter(b === brandFilter ? '' : b))}
+                  style={[styles.filterPopupOptionSmall, brandFilter === b && styles.filterPopupOptionActive]}>
+                  <Text 
+                    style={[styles.filterPopupOptionTextSmall, brandFilter === b && styles.filterPopupOptionTextActive]}
+                    numberOfLines={1}>
+                    {b}
+                  </Text>
+                </Pressable>
+              ))}
+              {brands.length > 4 && (
+                <Pressable
+                  style={[styles.filterPopupOptionSmall, styles.filterPopupOptionMore]}>
+                  <Text style={[styles.filterPopupOptionTextSmall, styles.filterPopupOptionTextMore]}>
+                    +{brands.length - 4}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Category filter */}
+        {categories.length > 0 && (
+          <View style={styles.filterPopupGroup}>
+            <Text style={styles.filterPopupLabel}>Category</Text>
+            <View style={styles.filterPopupOptions}>
+              <Pressable
+                onPress={() => handleFilterSelect(() => setCategoryFilter(''))}
+                style={[styles.filterPopupOptionSmall, categoryFilter === '' && styles.filterPopupOptionActive]}>
+                <Text style={[styles.filterPopupOptionTextSmall, categoryFilter === '' && styles.filterPopupOptionTextActive]}>
+                  All
+                </Text>
+              </Pressable>
+              {categories.slice(0, 4).map(cat => (
+                <Pressable
+                  key={cat}
+                  onPress={() => handleFilterSelect(() => setCategoryFilter(cat === categoryFilter ? '' : cat))}
+                  style={[styles.filterPopupOptionSmall, categoryFilter === cat && styles.filterPopupOptionActive]}>
+                  <Text 
+                    style={[styles.filterPopupOptionTextSmall, categoryFilter === cat && styles.filterPopupOptionTextActive]}
+                    numberOfLines={1}>
+                    {cat}
+                  </Text>
+                </Pressable>
+              ))}
+              {categories.length > 4 && (
+                <Pressable
+                  style={[styles.filterPopupOptionSmall, styles.filterPopupOptionMore]}>
+                  <Text style={[styles.filterPopupOptionTextSmall, styles.filterPopupOptionTextMore]}>
+                    +{categories.length - 4}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Size filter */}
+        {sizes.length > 0 && (
+          <View style={styles.filterPopupGroup}>
+            <Text style={styles.filterPopupLabel}>Size</Text>
+            <View style={styles.filterPopupOptions}>
+              <Pressable
+                onPress={() => handleFilterSelect(() => setSizeFilter(''))}
+                style={[styles.filterPopupOptionSmall, sizeFilter === '' && styles.filterPopupOptionActive]}>
+                <Text style={[styles.filterPopupOptionTextSmall, sizeFilter === '' && styles.filterPopupOptionTextActive]}>
+                  All
+                </Text>
+              </Pressable>
+              {sizes.slice(0, 4).map(s => (
+                <Pressable
+                  key={s}
+                  onPress={() => handleFilterSelect(() => setSizeFilter(s === sizeFilter ? '' : s))}
+                  style={[styles.filterPopupOptionSmall, sizeFilter === s && styles.filterPopupOptionActive]}>
+                  <Text 
+                    style={[styles.filterPopupOptionTextSmall, sizeFilter === s && styles.filterPopupOptionTextActive]}
+                    numberOfLines={1}>
+                    {s}
+                  </Text>
+                </Pressable>
+              ))}
+              {sizes.length > 4 && (
+                <Pressable
+                  style={[styles.filterPopupOptionSmall, styles.filterPopupOptionMore]}>
+                  <Text style={[styles.filterPopupOptionTextSmall, styles.filterPopupOptionTextMore]}>
+                    +{sizes.length - 4}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Low Stock toggle - made compact */}
+        <View style={styles.filterPopupGroup}>
+          <Text style={styles.filterPopupLabel}>Stock Status</Text>
+          <Pressable
+            onPress={() => handleFilterSelect(() => setLowStockOnly(!lowStockOnly))}
+            style={[styles.filterPopupOptionCompact, lowStockOnly && styles.filterPopupOptionDanger]}>
+            <AppIcon
+              name="alertCircle"
+              size={14}
+              tintColor={lowStockOnly ? colors.surface : colors.danger}
+            />
+            <Text style={[
+              styles.filterPopupOptionTextSmall,
+              lowStockOnly && styles.filterPopupOptionTextActive
+            ]}>
+              Low Stock
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Reset all */}
+        {activeFilterCount > 0 && (
+          <Pressable
+            style={styles.filterPopupReset}
+            onPress={() => handleFilterSelect(() => dispatch(resetInventoryFilters()))}>
+            <Text style={styles.filterPopupResetText}>Reset all filters</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+    </View>
+  );
+
   return (
     <ScreenShell
       onBack={navigation.canGoBack() ? navigation.goBack : undefined}
@@ -251,253 +459,102 @@ export function InventoryScreen({ navigation }: Props) {
         ) : undefined
       }>
 
-      {/* ── Search Bar ─────────────────────────────────────────── */}
+      {/* ── Search Card ─────────────────────────────────────────── */}
       <View style={styles.searchCard}>
+        {/* Search Row with integrated search icon */}
         <View style={styles.searchRow}>
-          <View style={styles.searchIconWrap}>
-            <AppIcon name="search" size={16} tintColor={colors.primary} />
+          <View style={styles.searchInputWrapper}>
+            <View style={styles.searchInputContainer}>
+              <AppIcon name="search" size={16} tintColor={colors.muted} style={styles.searchIconInside} />
+              <TextInput
+                style={styles.searchInput}
+                onChangeText={setQuery}
+                placeholder="Search products by name, SKU, location..."
+                placeholderTextColor={colors.muted}
+                value={query}
+              />
+              {query.length > 0 && (
+                <Pressable
+                  onPress={() => setQuery('')}
+                  style={styles.clearSearchBtn}>
+                  <Text style={styles.clearSearchText}>✕</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
-          <AppTextInput
-            label=""
-            onChangeText={setQuery}
-            placeholder="Type initials e.g. LB · name, SKU, location…"
-            value={query}
-            style={styles.searchInput}
-          />
-        </View>
-
-        {/* Filter toggle bar */}
-        <View style={styles.filterBar}>
+          
+          {/* Filter Button with badge */}
           <Pressable
-            style={[styles.filterToggleBtn, filtersOpen && styles.filterToggleBtnActive]}
-            onPress={() => setFiltersOpen(prev => !prev)}>
+            ref={filterButtonRef}
+            onLayout={(event) => {
+              const { x, y, width, height } = event.nativeEvent.layout;
+              setFilterButtonLayout({ x, y, width, height });
+            }}
+            style={[styles.filterToggleBtn, activeFilterCount > 0 && styles.filterToggleBtnActive]}
+            onPress={() => setFilterPopupVisible(!filterPopupVisible)}>
             <AppIcon
               name="filter"
-              size={14}
-              tintColor={filtersOpen ? colors.surface : colors.inkSoft}
+              size={18}
+              tintColor={activeFilterCount > 0 ? colors.surface : colors.inkSoft}
             />
-            <Text style={[styles.filterToggleText, filtersOpen && styles.filterToggleTextActive]}>
-              Filters
-            </Text>
             {activeFilterCount > 0 && (
               <View style={styles.filterBadge}>
                 <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
               </View>
             )}
           </Pressable>
+        </View>
 
-          {/* Quick filter chips in a horizontal row */}
+        {/* Active filters summary - show what filters are applied */}
+        {activeFilterCount > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipRow}>
-            {/* Store chips */}
-            {data.stores.map(store => (
-              <Pressable
-                key={store.id}
-                onPress={() => {
-                  const next = storeId === store.id ? '' : store.id;
-                  setStoreId(next);
-                  if (!next) setWarehouseId('');
-                }}
-                style={[styles.chip, storeId === store.id && styles.chipActive]}>
-                <Text style={[styles.chipText, storeId === store.id && styles.chipTextActive]}>
-                  {store.name}
+            contentContainerStyle={styles.activeFiltersSummary}>
+            {storeId !== '' && (
+              <View style={styles.activeFilterChip}>
+                <Text style={styles.activeFilterChipText}>
+                  Store: {data.stores.find(s => s.id === storeId)?.name}
                 </Text>
-              </Pressable>
-            ))}
-            {/* Low stock chip */}
-            <Pressable
-              onPress={() => setLowStockOnly(!lowStockOnly)}
-              style={[styles.chip, styles.chipDanger, lowStockOnly && styles.chipDangerActive]}>
-              <AppIcon
-                name="alertCircle"
-                size={12}
-                tintColor={lowStockOnly ? colors.surface : colors.danger}
-              />
-              <Text
-                style={[
-                  styles.chipText,
-                  styles.chipDangerText,
-                  lowStockOnly && styles.chipTextActive,
-                ]}>
-                Low Stock
-              </Text>
-            </Pressable>
+              </View>
+            )}
+            {warehouseId !== '' && (
+              <View style={styles.activeFilterChip}>
+                <Text style={styles.activeFilterChipText}>
+                  Godown: {data.warehouses.find(w => w.id === warehouseId)?.name}
+                </Text>
+              </View>
+            )}
+            {brandFilter !== '' && (
+              <View style={styles.activeFilterChip}>
+                <Text style={styles.activeFilterChipText}>Brand: {brandFilter}</Text>
+              </View>
+            )}
+            {categoryFilter !== '' && (
+              <View style={styles.activeFilterChip}>
+                <Text style={styles.activeFilterChipText}>Category: {categoryFilter}</Text>
+              </View>
+            )}
+            {sizeFilter !== '' && (
+              <View style={styles.activeFilterChip}>
+                <Text style={styles.activeFilterChipText}>Size: {sizeFilter}</Text>
+              </View>
+            )}
+            {locationFilter !== '' && (
+              <View style={styles.activeFilterChip}>
+                <Text style={styles.activeFilterChipText}>Location: {locationFilter}</Text>
+              </View>
+            )}
+            {lowStockOnly && (
+              <View style={[styles.activeFilterChip, styles.activeFilterChipDanger]}>
+                <Text style={[styles.activeFilterChipText, styles.activeFilterChipTextDanger]}>
+                  Low Stock
+                </Text>
+              </View>
+            )}
           </ScrollView>
-        </View>
-
-        {/* Expanded filter panel */}
-        {filtersOpen && (
-          <View style={styles.expandedFilters}>
-            {/* Godown / warehouse row — only shown once a store is selected */}
-            {storeId !== '' && filterWarehouses.length > 0 && (
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterGroupLabel}>Godown</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.chipRow}>
-                  <Pressable
-                    onPress={() => setWarehouseId('')}
-                    style={[styles.chip, warehouseId === '' && styles.chipActive]}>
-                    <Text style={[styles.chipText, warehouseId === '' && styles.chipTextActive]}>
-                      All
-                    </Text>
-                  </Pressable>
-                  {filterWarehouses.map(wh => (
-                    <Pressable
-                      key={wh.id}
-                      onPress={() => setWarehouseId(wh.id === warehouseId ? '' : wh.id)}
-                      style={[styles.chip, warehouseId === wh.id && styles.chipActive]}>
-                      <Text
-                        style={[styles.chipText, warehouseId === wh.id && styles.chipTextActive]}>
-                        {wh.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Brand row */}
-            {brands.length > 0 && (
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterGroupLabel}>Brand</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.chipRow}>
-                  <Pressable
-                    onPress={() => setBrandFilter('')}
-                    style={[styles.chip, brandFilter === '' && styles.chipActive]}>
-                    <Text style={[styles.chipText, brandFilter === '' && styles.chipTextActive]}>
-                      All
-                    </Text>
-                  </Pressable>
-                  {brands.map(b => (
-                    <Pressable
-                      key={b}
-                      onPress={() => setBrandFilter(b === brandFilter ? '' : b)}
-                      style={[styles.chip, brandFilter === b && styles.chipActive]}>
-                      <Text
-                        style={[styles.chipText, brandFilter === b && styles.chipTextActive]}>
-                        {b}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Category row */}
-            {categories.length > 0 && (
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterGroupLabel}>Category</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.chipRow}>
-                  <Pressable
-                    onPress={() => setCategoryFilter('')}
-                    style={[styles.chip, categoryFilter === '' && styles.chipActive]}>
-                    <Text
-                      style={[styles.chipText, categoryFilter === '' && styles.chipTextActive]}>
-                      All
-                    </Text>
-                  </Pressable>
-                  {categories.map(cat => (
-                    <Pressable
-                      key={cat}
-                      onPress={() => setCategoryFilter(cat === categoryFilter ? '' : cat)}
-                      style={[styles.chip, categoryFilter === cat && styles.chipActive]}>
-                      <Text
-                        style={[styles.chipText, categoryFilter === cat && styles.chipTextActive]}>
-                        {cat}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Size row */}
-            {sizes.length > 0 && (
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterGroupLabel}>Size</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.chipRow}>
-                  <Pressable
-                    onPress={() => setSizeFilter('')}
-                    style={[styles.chip, sizeFilter === '' && styles.chipActive]}>
-                    <Text style={[styles.chipText, sizeFilter === '' && styles.chipTextActive]}>
-                      All
-                    </Text>
-                  </Pressable>
-                  {sizes.map(s => (
-                    <Pressable
-                      key={s}
-                      onPress={() => setSizeFilter(s === sizeFilter ? '' : s)}
-                      style={[styles.chip, sizeFilter === s && styles.chipActive]}>
-                      <Text
-                        style={[styles.chipText, sizeFilter === s && styles.chipTextActive]}>
-                        {s}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Location row */}
-            {locationCodes.length > 0 && (
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterGroupLabel}>Location</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.chipRow}>
-                  <Pressable
-                    onPress={() => setLocationFilter('')}
-                    style={[styles.chip, locationFilter === '' && styles.chipActive]}>
-                    <Text
-                      style={[styles.chipText, locationFilter === '' && styles.chipTextActive]}>
-                      All
-                    </Text>
-                  </Pressable>
-                  {locationCodes.map(code => (
-                    <Pressable
-                      key={code}
-                      onPress={() => setLocationFilter(code === locationFilter ? '' : code)}
-                      style={[styles.chip, locationFilter === code && styles.chipActive]}>
-                      <Text
-                        style={[
-                          styles.chipText,
-                          locationFilter === code && styles.chipTextActive,
-                        ]}>
-                        {code}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Reset all */}
-            {activeFilterCount > 0 && (
-              <Pressable
-                style={styles.resetBtn}
-                onPress={() => dispatch(resetInventoryFilters())}>
-                <Text style={styles.resetBtnText}>✕ Reset all filters</Text>
-              </Pressable>
-            )}
-          </View>
         )}
       </View>
-
-
 
       <SectionHeader title="Live Inventory" meta={`${filteredInventory.length} items`} />
 
@@ -568,6 +625,18 @@ export function InventoryScreen({ navigation }: Props) {
         </Pressable>
       )}
 
+      {/* Filter Popup - positioned near the filter button */}
+      {filterPopupVisible && (
+        <>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setFilterPopupVisible(false)}
+          />
+          <FilterPopup />
+        </>
+      )}
+
+      {/* Update Stock Modal */}
       <Modal
         visible={updateModalVisible && !!selectedItem}
         transparent
@@ -736,61 +805,307 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginBottom: spacing.md,
+    width: '100%',
   },
-  searchIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.cardTintGreen,
+  searchInputWrapper: {
+    flex: 1,
+    minWidth: 0,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    height: 44,
+  },
+  searchIconInside: {
+    marginRight: spacing.sm,
   },
   searchInput: {
     flex: 1,
+    height: 44,
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.md,
+    color: colors.ink,
+    paddingVertical: 0,
   },
-  // ── Filter Bar ───────────────────────────────────────────────────────────────
-  filterBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+  clearSearchBtn: {
+    padding: 4,
   },
+  clearSearchText: {
+    fontSize: 14,
+    color: colors.muted,
+    fontFamily: typography.fontFamily.medium,
+  },
+  // ── Filter Button ────────────────────────────────────────────────────────────
   filterToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    justifyContent: 'center',
+    gap: 4,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 12,
     backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.border,
+    flexShrink: 0,
+    minWidth: 44,
+    height: 44,
+    position: 'relative',
   },
   filterToggleBtnActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  filterToggleText: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.inkSoft,
-  },
-  filterToggleTextActive: {
-    color: colors.surface,
-  },
   filterBadge: {
     backgroundColor: colors.danger,
     borderRadius: 8,
-    minWidth: 16,
-    height: 16,
+    minWidth: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
+    position: 'absolute',
+    top: -6,
+    right: -6,
   },
   filterBadgeText: {
     fontFamily: typography.fontFamily.bold,
     fontSize: 9,
     color: colors.surface,
+  },
+  // ── Active Filters Summary ──────────────────────────────────────────────────
+  activeFiltersSummary: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  activeFilterChip: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 14,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  activeFilterChipText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.primary,
+  },
+  activeFilterChipDanger: {
+    backgroundColor: colors.cardTintRed,
+    borderColor: colors.danger,
+  },
+  activeFilterChipTextDanger: {
+    color: colors.danger,
+  },
+  // ── Filter Popup ─────────────────────────────────────────────────────────────
+  filterPopup: {
+    position: 'absolute',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    ...shadows.lg,
+    elevation: 10,
+    zIndex: 1000,
+    maxHeight: 440,
+  },
+  filterPopupArrow: {
+    position: 'absolute',
+    top: -8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: colors.surface,
+    zIndex: 1001,
+  },
+  filterPopupScroll: {
+    maxHeight: 420,
+  },
+  filterPopupContent: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  filterPopupGroup: {
+    marginBottom: spacing.sm,
+  },
+  filterPopupLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  filterPopupLabel: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  filterPopupSelectedValue: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.primary,
+    maxWidth: 150,
+  },
+  // Store list styles
+  storeListContainer: {
+    marginTop: spacing.xs,
+  },
+  storeListContent: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingVertical: 2,
+  },
+  storeItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: 60,
+  },
+  storeItemActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  storeItemText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.inkSoft,
+  },
+  storeItemTextActive: {
+    color: colors.surface,
+  },
+  filterPopupOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  // Small compact option for filters
+  filterPopupOptionSmall: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterPopupOptionCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignSelf: 'flex-start',
+  },
+  filterPopupOptionActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterPopupOptionDanger: {
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+  },
+  filterPopupOptionMore: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  filterPopupOptionTextSmall: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.inkSoft,
+  },
+  filterPopupOptionTextMore: {
+    color: colors.muted,
+    fontSize: 10,
+  },
+  filterPopupOptionTextActive: {
+    color: colors.surface,
+  },
+  filterPopupReset: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.cardTintRed,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+  },
+  filterPopupResetText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.danger,
+  },
+  // ── Filter Modal (for reference) ────────────────────────────────────────────
+  filterModalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    maxHeight: '90%',
+    ...shadows.lg,
+  },
+  filterModalContent: {
+    flex: 1,
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  filterModalTitle: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.lg,
+    color: colors.ink,
+  },
+  filterModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterModalCloseText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.md,
+    color: colors.muted,
+  },
+  filterGroup: {
+    marginBottom: spacing.lg,
+  },
+  filterGroupLabel: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   chipRow: {
     flexDirection: 'row',
@@ -823,6 +1138,7 @@ const styles = StyleSheet.create({
   chipDanger: {
     borderColor: '#FECACA',
     backgroundColor: colors.cardTintRed,
+    alignSelf: 'flex-start',
   },
   chipDangerActive: {
     backgroundColor: colors.danger,
@@ -830,24 +1146,6 @@ const styles = StyleSheet.create({
   },
   chipDangerText: {
     color: colors.danger,
-  },
-  // ── Expanded filters ─────────────────────────────────────────────────────────
-  expandedFilters: {
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  filterGroup: {
-    marginBottom: spacing.md,
-  },
-  filterGroupLabel: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.muted,
-    marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   resetBtn: {
     alignSelf: 'flex-start',
@@ -858,40 +1156,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA',
     marginTop: spacing.xs,
+    marginBottom: spacing.md,
   },
   resetBtnText: {
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.xs,
     color: colors.danger,
   },
-  // ── Create Card ──────────────────────────────────────────────────────────────
-  createCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    ...shadows.sm,
-  },
-  createHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+  applyFilterBtn: {
+    marginTop: spacing.sm,
     marginBottom: spacing.md,
-  },
-  createIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.cardTintGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  createTitle: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.md,
-    color: colors.ink,
   },
   // ── Inventory Item Card ───────────────────────────────────────────────────────
   itemCard: {
@@ -998,7 +1272,7 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     color: colors.surface,
   },
-  // ── Update Modal ─────────────────────────────────────────────────────────────
+  // ── Modals ──────────────────────────────────────────────────────────────────
   modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',

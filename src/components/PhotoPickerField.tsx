@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View, PermissionsAndroid, Platform } from 'react-native';
 import {
   launchCamera,
   launchImageLibrary,
@@ -11,9 +11,53 @@ import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { typography } from '../theme/typography';
 
-// Lets the user attach a design photo by taking a picture or choosing one from
-// the gallery. The selected image is uploaded to Firebase Storage and the
-// resulting download URL is reported through `onChange`.
+// Helper functions to request runtime permissions
+const requestCameraPermission = async (): Promise<boolean> => {
+  try {
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.CAMERA,
+      {
+        title: 'Camera Permission',
+        message: 'App needs access to your camera to take photos.',
+        buttonPositive: 'OK',
+      },
+    );
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (err) {
+    console.warn(err);
+    return false;
+  }
+};
+
+const requestGalleryPermission = async (): Promise<boolean> => {
+  try {
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+        {
+          title: 'Gallery Permission',
+          message: 'App needs access to your photos.',
+          buttonPositive: 'OK',
+        },
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } else {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+        {
+          title: 'Storage Permission',
+          message: 'App needs access to your photos.',
+          buttonPositive: 'OK',
+        },
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    }
+  } catch (err) {
+    console.warn(err);
+    return false;
+  }
+};
+
 export function PhotoPickerField({
   label = 'Design Photo',
   value,
@@ -39,9 +83,11 @@ export function PhotoPickerField({
     if (!asset?.uri) {
       return;
     }
+    // Strip the file:// prefix if present – Firebase putFile expects a native path
+    const cleanUri = asset.uri.startsWith('file://') ? asset.uri.replace('file://', '') : asset.uri;
     setUploading(true);
     try {
-      const url = await uploadProductPhoto(asset.uri);
+      const url = await uploadProductPhoto(cleanUri);
       onChange(url);
     } catch (error) {
       Alert.alert('Upload failed', (error as Error).message || 'Could not upload photo.');
@@ -50,10 +96,18 @@ export function PhotoPickerField({
     }
   };
 
-  const pickFromCamera = () =>
+  const pickFromCamera = async () => {
     launchCamera({ mediaType: 'photo', quality: 0.7 }, handleResponse);
-  const pickFromGallery = () =>
+  };
+
+  const pickFromGallery = async () => {
+    const hasPermission = await requestGalleryPermission();
+    if (!hasPermission) {
+      Alert.alert('Permission denied', 'Gallery permission is required to select photos.');
+      return;
+    }
     launchImageLibrary({ mediaType: 'photo', quality: 0.7 }, handleResponse);
+  };
 
   return (
     <View style={styles.wrapper}>
