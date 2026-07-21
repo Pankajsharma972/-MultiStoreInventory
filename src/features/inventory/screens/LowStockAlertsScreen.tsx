@@ -1,13 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
+import { AppTextInput } from '../../../components/AppTextInput';
 import { EmptyState } from '../../../components/EmptyState';
 import { FilterChips } from '../../../components/FilterChips';
 import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { StatusBadge } from '../../../components/StatusBadge';
+import { useAuth } from '../../auth/AuthProvider';
 import { useInventoryData } from '../../../services/useInventoryData';
+import { updateMinimumThreshold } from '../../../services/inventoryRepository';
 import {
   getStockAlertLevel,
   sortByBrandThenSize,
@@ -38,9 +43,34 @@ function alertTone(level: StockAlertLevel): 'warning' | 'danger' {
 
 export function LowStockAlertsScreen({ navigation }: Props) {
   const data = useInventoryData();
+  const { profile } = useAuth();
+  const insets = useSafeAreaInsets();
   const [storeFilter, setStoreFilter] = useState('');
   const [brandFilter, setBrandFilter] = useState('');
   const [alertFilter, setAlertFilter] = useState<StockAlertLevel | typeof ALL>(ALL);
+  const [thresholdItem, setThresholdItem] = useState<InventoryItem | null>(null);
+  const [minInput, setMinInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const openThresholdEditor = (item: InventoryItem) => {
+    setThresholdItem(item);
+    setMinInput(String(item.minimumQuantity ?? 0));
+  };
+
+  const saveThreshold = async () => {
+    if (!thresholdItem) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateMinimumThreshold(thresholdItem, minInput, profile);
+      setThresholdItem(null);
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Could not update threshold.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const brands = useMemo(
     () =>
@@ -173,10 +203,15 @@ export function LowStockAlertsScreen({ navigation }: Props) {
                       </Text>
                     </View>
                     <View style={styles.qtyDivider} />
-                    <View style={styles.qtyBlock}>
+                    <Pressable
+                      style={styles.qtyBlock}
+                      onPress={() => openThresholdEditor(item)}>
                       <Text style={styles.qtyLabel}>Minimum</Text>
-                      <Text style={styles.qtyValue}>{item.minimumQuantity}</Text>
-                    </View>
+                      <View style={styles.minValueRow}>
+                        <Text style={styles.qtyValue}>{item.minimumQuantity}</Text>
+                        <AppIcon name="edit" size={12} tintColor={colors.primary} />
+                      </View>
+                    </Pressable>
                     <View style={styles.qtyDivider} />
                     <View style={styles.qtyBlock}>
                       <Text style={styles.qtyLabel}>Size</Text>
@@ -194,6 +229,36 @@ export function LowStockAlertsScreen({ navigation }: Props) {
           </View>
         ))
       )}
+
+      <Modal
+        visible={!!thresholdItem}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setThresholdItem(null)}
+        statusBarTranslucent>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setThresholdItem(null)} />
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Minimum Threshold</Text>
+            <Text style={styles.modalSubtitle} numberOfLines={1}>
+              {thresholdItem?.name}
+            </Text>
+            <AppTextInput
+              keyboardType="number-pad"
+              label="Minimum stock quantity"
+              onChangeText={text => setMinInput(text.replace(/[^0-9]/g, ''))}
+              placeholder="0"
+              value={minInput}
+            />
+            <AppButton
+              disabled={saving || minInput.trim() === ''}
+              onPress={saveThreshold}
+              title={saving ? 'Saving…' : 'Save Threshold'}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenShell>
   );
 }
@@ -328,5 +393,44 @@ const styles = StyleSheet.create({
   },
   qtyDanger: {
     color: colors.danger,
+  },
+  minValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    ...shadows.lg,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.md,
+    color: colors.ink,
+  },
+  modalSubtitle: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    marginTop: 2,
+    marginBottom: spacing.md,
   },
 });

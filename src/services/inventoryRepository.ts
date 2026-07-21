@@ -341,6 +341,29 @@ export async function adjustStock(
   });
 }
 
+export async function updateMinimumThreshold(
+  item: InventoryItem,
+  minimumText: string,
+  user: UserProfile | null,
+) {
+  const nextMinimum = Number(minimumText || 0);
+  if (!Number.isFinite(nextMinimum) || nextMinimum < 0) {
+    throw new Error('Minimum threshold must be zero or more.');
+  }
+
+  await db.collection(collections.inventory).doc(item.id).update({
+    minimumQuantity: nextMinimum,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  });
+
+  await addActivity({
+    action: 'Product Updated',
+    detail: `${item.name}: minimum threshold ${item.minimumQuantity} → ${nextMinimum}`,
+    storeId: item.storeId,
+    user,
+  });
+}
+
 export async function removeDamagedStock(
   item: InventoryItem,
   amountText: string,
