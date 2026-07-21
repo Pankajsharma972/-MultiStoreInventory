@@ -10,6 +10,8 @@ import { SelectPill } from '../../../components/SelectPill';
 import { createOrder } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import { clearCart, setCartQuantity } from '../../../store/slices/cartSlice';
 import {
   glazeLabel,
   inventorySearchText,
@@ -28,13 +30,14 @@ export function BookOrderScreen({ navigation }: Props) {
   const { profile } = useAuth();
   const data = useInventoryData();
 
+  const dispatch = useAppDispatch();
+  const cart = useAppSelector(state => state.cart.items);
+
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [storeId, setStoreId] = useState('');
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
   const [query, setQuery] = useState('');
-  // productId -> quantity ordered
-  const [cart, setCart] = useState<Record<string, number>>({});
   const [booking, setBooking] = useState(false);
 
   const activeStoreId = storeId || data.stores[0]?.id || '';
@@ -63,16 +66,8 @@ export function BookOrderScreen({ navigation }: Props) {
   const totalUnits = cartLines.reduce((sum, line) => sum + line.qty, 0);
 
   const setQty = (productId: string, qty: number, available: number) => {
-    setCart(prev => {
-      const next = { ...prev };
-      const clamped = Math.max(0, Math.min(qty, available));
-      if (clamped <= 0) {
-        delete next[productId];
-      } else {
-        next[productId] = clamped;
-      }
-      return next;
-    });
+    const clamped = Math.max(0, Math.min(qty, available));
+    dispatch(setCartQuantity({ productId, quantity: clamped }));
   };
 
   const canBook = customerName.trim().length > 0 && cartLines.length > 0;
@@ -102,6 +97,7 @@ export function BookOrderScreen({ navigation }: Props) {
         },
         profile,
       );
+      dispatch(clearCart());
       Alert.alert('Order placed', 'Stock has been deducted and the order is now in the orders list.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
@@ -145,7 +141,7 @@ export function BookOrderScreen({ navigation }: Props) {
             label="Store *"
             onChange={value => {
               setStoreId(value);
-              setCart({});
+              dispatch(clearCart());
             }}
             options={data.stores.map(store => ({ label: store.name, value: store.id }))}
             value={activeStoreId}

@@ -20,6 +20,11 @@ import { SectionHeader } from '../../../components/SectionHeader';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { useAuth } from '../../auth/AuthProvider';
 import { useInventoryData } from '../../../services/useInventoryData';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import {
+  resetInventoryFilters,
+  setInventoryFilter,
+} from '../../../store/slices/filtersSlice';
 import {
   adjustStock,
   moveStockWithinStore,
@@ -58,14 +63,28 @@ function alertTone(level: StockAlertLevel): 'success' | 'warning' | 'danger' {
 export function InventoryScreen({ navigation }: Props) {
   const { profile } = useAuth();
   const data = useInventoryData();
-  const [query, setQuery] = useState('');
-  const [storeId, setStoreId] = useState('');
-  const [warehouseId, setWarehouseId] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [brandFilter, setBrandFilter] = useState('');
-  const [sizeFilter, setSizeFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
-  const [lowStockOnly, setLowStockOnly] = useState(false);
+  const dispatch = useAppDispatch();
+  const filters = useAppSelector(state => state.filters.inventory);
+  const query = filters.query;
+  const storeId = filters.storeId;
+  const warehouseId = filters.warehouseId;
+  const categoryFilter = filters.category;
+  const brandFilter = filters.brand;
+  const sizeFilter = filters.size;
+  const locationFilter = filters.location;
+  const lowStockOnly = filters.lowStockOnly;
+  const setQuery = (value: string) => dispatch(setInventoryFilter({ key: 'query', value }));
+  const setStoreId = (value: string) => dispatch(setInventoryFilter({ key: 'storeId', value }));
+  const setWarehouseId = (value: string) =>
+    dispatch(setInventoryFilter({ key: 'warehouseId', value }));
+  const setCategoryFilter = (value: string) =>
+    dispatch(setInventoryFilter({ key: 'category', value }));
+  const setBrandFilter = (value: string) => dispatch(setInventoryFilter({ key: 'brand', value }));
+  const setSizeFilter = (value: string) => dispatch(setInventoryFilter({ key: 'size', value }));
+  const setLocationFilter = (value: string) =>
+    dispatch(setInventoryFilter({ key: 'location', value }));
+  const setLowStockOnly = (value: boolean) =>
+    dispatch(setInventoryFilter({ key: 'lowStockOnly', value }));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [operationType, setOperationType] = useState<StockOperationType>('receive');
   const [operationAmount, setOperationAmount] = useState('');
@@ -289,7 +308,7 @@ export function InventoryScreen({ navigation }: Props) {
             ))}
             {/* Low stock chip */}
             <Pressable
-              onPress={() => setLowStockOnly(prev => !prev)}
+              onPress={() => setLowStockOnly(!lowStockOnly)}
               style={[styles.chip, styles.chipDanger, lowStockOnly && styles.chipDangerActive]}>
               <AppIcon
                 name="alertCircle"
@@ -470,15 +489,7 @@ export function InventoryScreen({ navigation }: Props) {
             {activeFilterCount > 0 && (
               <Pressable
                 style={styles.resetBtn}
-                onPress={() => {
-                  setStoreId('');
-                  setWarehouseId('');
-                  setCategoryFilter('');
-                  setBrandFilter('');
-                  setSizeFilter('');
-                  setLocationFilter('');
-                  setLowStockOnly(false);
-                }}>
+                onPress={() => dispatch(resetInventoryFilters())}>
                 <Text style={styles.resetBtnText}>✕ Reset all filters</Text>
               </Pressable>
             )}
