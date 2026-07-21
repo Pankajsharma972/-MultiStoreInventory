@@ -4,10 +4,17 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
 import { FilterChips } from '../../../components/FilterChips';
+import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { useInventoryData } from '../../../services/useInventoryData';
-import { getStockAlertLevel, stockAlertLabel } from '../../../utils/inventoryHelpers';
+import {
+  getStockAlertLevel,
+  sortByBrandThenSize,
+  stockAlertLabel,
+  suggestedReorderQuantity,
+} from '../../../utils/inventoryHelpers';
+import type { InventoryItem } from '../../../types/models';
 import { colors } from '../../../theme/colors';
 import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
@@ -32,16 +39,43 @@ function alertTone(level: StockAlertLevel): 'warning' | 'danger' {
 export function LowStockAlertsScreen({ navigation }: Props) {
   const data = useInventoryData();
   const [storeFilter, setStoreFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
   const [alertFilter, setAlertFilter] = useState<StockAlertLevel | typeof ALL>(ALL);
 
+  const brands = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          data.lowStockItems.map(item => item.brand).filter((val): val is string => Boolean(val)),
+        ),
+      ),
+    [data.lowStockItems],
+  );
+
   const filteredItems = useMemo(() => {
-    return data.lowStockItems.filter(item => {
+    const rows = data.lowStockItems.filter(item => {
       const level = getStockAlertLevel(item);
       const matchesStore = !storeFilter || item.storeId === storeFilter;
+      const matchesBrand = !brandFilter || item.brand === brandFilter;
       const matchesAlert = alertFilter === ALL || level === alertFilter;
-      return matchesStore && matchesAlert;
+      return matchesStore && matchesBrand && matchesAlert;
     });
-  }, [alertFilter, data.lowStockItems, storeFilter]);
+    return sortByBrandThenSize(rows);
+  }, [alertFilter, brandFilter, data.lowStockItems, storeFilter]);
+
+  // Group low-stock rows by brand/company with a per-brand reorder total so the
+  // buyer can see how much to order for a particular brand.
+  const brandGroups = useMemo(() => {
+    const groups = new Map<string, { items: InventoryItem[]; reorderTotal: number }>();
+    filteredItems.forEach(item => {
+      const key = item.brand || 'No Brand';
+      const group = groups.get(key) || { items: [], reorderTotal: 0 };
+      group.items.push(item);
+      group.reorderTotal += suggestedReorderQuantity(item);
+      groups.set(key, group);
+    });
+    return Array.from(groups.entries()).map(([brand, group]) => ({ brand, ...group }));
+  }, [filteredItems]);
 
   return (
     <ScreenShell
@@ -75,6 +109,17 @@ export function LowStockAlertsScreen({ navigation }: Props) {
         ]}
         value={storeFilter || ALL}
       />
+      {brands.length > 0 ? (
+        <FilterChips
+          label="Brand / Company"
+          onChange={value => setBrandFilter(value === ALL ? '' : value)}
+          options={[
+            { label: 'All Brands', value: ALL },
+            ...brands.map(brand => ({ label: brand, value: brand })),
+          ]}
+          value={brandFilter || ALL}
+        />
+      ) : null}
       <FilterChips
         label="Alert Level"
         onChange={value => setAlertFilter(value as StockAlertLevel | typeof ALL)}
@@ -89,41 +134,65 @@ export function LowStockAlertsScreen({ navigation }: Props) {
           subtitle="All filtered inventory is above minimum stock levels."
         />
       ) : (
-        filteredItems.map(item => {
-          const store = data.stores.find(row => row.id === item.storeId)?.name || 'Store';
-          const warehouse = data.warehouses.find(row => row.id === item.warehouseId)?.name || 'Warehouse';
-          const level = getStockAlertLevel(item);
-          return (
-            <View key={item.id} style={[styles.alertCard, level !== 'low' && styles.alertCardCritical]}>
-              <View style={styles.alertHeader}>
-                <Text style={styles.alertName}>{item.name}</Text>
-                <StatusBadge label={stockAlertLabel(level)} tone={alertTone(level)} />
-              </View>
-              <View style={styles.metaRow}>
-                <AppIcon name="store" size={14} tintColor={colors.muted} />
-                <Text style={styles.metaText}>
-                  {store} · {warehouse} · {item.locationCode}
-                </Text>
-              </View>
-              <View style={styles.qtyRow}>
-                <View style={styles.qtyBlock}>
-                  <Text style={styles.qtyLabel}>Current</Text>
-                  <Text style={[styles.qtyValue, level !== 'low' && styles.qtyDanger]}>{item.quantity}</Text>
-                </View>
-                <View style={styles.qtyDivider} />
-                <View style={styles.qtyBlock}>
-                  <Text style={styles.qtyLabel}>Minimum</Text>
-                  <Text style={styles.qtyValue}>{item.minimumQuantity}</Text>
-                </View>
-                <View style={styles.qtyDivider} />
-                <View style={styles.qtyBlock}>
-                  <Text style={styles.qtyLabel}>Size</Text>
-                  <Text style={styles.qtyValue}>{item.size || '—'}</Text>
-                </View>
-              </View>
+        brandGroups.map(group => (
+          <View key={group.brand}>
+            <View style={styles.groupHeader}>
+              <Text style={styles.groupTitle}>{group.brand}</Text>
+              <Text style={styles.groupReorder}>Order ~{group.reorderTotal} units</Text>
             </View>
-          );
-        })
+            {group.items.map(item => {
+              const store = data.stores.find(row => row.id === item.storeId)?.name || 'Store';
+              const warehouse =
+                data.warehouses.find(row => row.id === item.warehouseId)?.name || 'Warehouse';
+              const level = getStockAlertLevel(item);
+              const reorder = suggestedReorderQuantity(item);
+              return (
+                <View
+                  key={item.id}
+                  style={[styles.alertCard, level !== 'low' && styles.alertCardCritical]}>
+                  <View style={styles.alertHeader}>
+                    <View style={styles.alertTitleWrap}>
+                      <ProductThumbnail uri={item.photoUrl} size={40} radius={10} />
+                      <Text style={styles.alertName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                    </View>
+                    <StatusBadge label={stockAlertLabel(level)} tone={alertTone(level)} />
+                  </View>
+                  <View style={styles.metaRow}>
+                    <AppIcon name="store" size={14} tintColor={colors.muted} />
+                    <Text style={styles.metaText}>
+                      {store} · {warehouse} · {item.locationCode}
+                    </Text>
+                  </View>
+                  <View style={styles.qtyRow}>
+                    <View style={styles.qtyBlock}>
+                      <Text style={styles.qtyLabel}>Current</Text>
+                      <Text style={[styles.qtyValue, level !== 'low' && styles.qtyDanger]}>
+                        {item.quantity}
+                      </Text>
+                    </View>
+                    <View style={styles.qtyDivider} />
+                    <View style={styles.qtyBlock}>
+                      <Text style={styles.qtyLabel}>Minimum</Text>
+                      <Text style={styles.qtyValue}>{item.minimumQuantity}</Text>
+                    </View>
+                    <View style={styles.qtyDivider} />
+                    <View style={styles.qtyBlock}>
+                      <Text style={styles.qtyLabel}>Size</Text>
+                      <Text style={styles.qtyValue}>{item.size || '—'}</Text>
+                    </View>
+                    <View style={styles.qtyDivider} />
+                    <View style={styles.qtyBlock}>
+                      <Text style={styles.qtyLabel}>To order</Text>
+                      <Text style={[styles.qtyValue, styles.qtyReorder]}>{reorder}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ))
       )}
     </ScreenShell>
   );
@@ -186,11 +255,38 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.sm,
   },
+  alertTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
   alertName: {
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.md,
     color: colors.ink,
     flex: 1,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  groupTitle: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.md,
+    color: colors.ink,
+  },
+  groupReorder: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.primary,
+  },
+  qtyReorder: {
+    color: colors.primary,
   },
   metaRow: {
     flexDirection: 'row',

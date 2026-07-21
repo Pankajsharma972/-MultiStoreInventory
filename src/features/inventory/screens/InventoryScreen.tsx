@@ -14,6 +14,7 @@ import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
 import { EmptyState } from '../../../components/EmptyState';
+import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SectionHeader } from '../../../components/SectionHeader';
 import { StatusBadge } from '../../../components/StatusBadge';
@@ -24,9 +25,14 @@ import {
   moveStockWithinStore,
   receiveStock,
   removeDamagedStock,
-  saveProduct,
 } from '../../../services/inventoryRepository';
-import { getStockAlertLevel, stockAlertLabel } from '../../../utils/inventoryHelpers';
+import {
+  getStockAlertLevel,
+  glazeLabel,
+  inventorySearchText,
+  matchesSearch,
+  stockAlertLabel,
+} from '../../../utils/inventoryHelpers';
 import { colors } from '../../../theme/colors';
 import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
@@ -36,7 +42,6 @@ import type { InventoryItem, StockAlertLevel, StockOperationType } from '../../.
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Inventory'>;
 
-const ALL = '__all__';
 const operations: Array<{ label: string; value: StockOperationType }> = [
   { label: 'Receive', value: 'receive' },
   { label: 'Adjust', value: 'adjust' },
@@ -57,17 +62,11 @@ export function InventoryScreen({ navigation }: Props) {
   const [storeId, setStoreId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('');
-  const [size, setSize] = useState('');
-  const [sku, setSku] = useState('');
-  const [locationCode, setLocationCode] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [minimumQuantity, setMinimumQuantity] = useState('1');
   const [operationType, setOperationType] = useState<StockOperationType>('receive');
   const [operationAmount, setOperationAmount] = useState('');
   const [operationReason, setOperationReason] = useState('');
@@ -77,22 +76,12 @@ export function InventoryScreen({ navigation }: Props) {
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
   const insets = useSafeAreaInsets();
 
-  const selectedStoreId = storeId || data.stores[0]?.id || '';
-  const warehouses = data.warehouses.filter(warehouse => warehouse.storeId === selectedStoreId);
-  const selectedWarehouseId = warehouseId || warehouses[0]?.id || '';
-
-  const locationOptions = useMemo(() => {
-    const filtered = data.locations.filter(
-      location => location.storeId === selectedStoreId && location.warehouseId === selectedWarehouseId,
-    );
-    const uniqueMap = new Map<string, (typeof filtered)[0]>();
-    filtered.forEach(loc => {
-      if (!uniqueMap.has(loc.code)) {
-        uniqueMap.set(loc.code, loc);
-      }
-    });
-    return Array.from(uniqueMap.values());
-  }, [data.locations, selectedStoreId, selectedWarehouseId]);
+  // Godowns (warehouses) belonging to the store selected in the filter bar.
+  // They only surface once a store chip is active, so godowns appear under
+  // their store.
+  const filterWarehouses = data.warehouses.filter(
+    warehouse => warehouse.storeId === storeId,
+  );
 
   const categories = useMemo(
     () => Array.from(new Set(data.inventory.map(item => item.category).filter(Boolean))),
@@ -109,29 +98,26 @@ export function InventoryScreen({ navigation }: Props) {
     () => Array.from(new Set(data.inventory.map(item => item.locationCode).filter(Boolean))),
     [data.inventory],
   );
+  const brands = useMemo(
+    () =>
+      Array.from(
+        new Set(data.inventory.map(item => item.brand).filter((val): val is string => Boolean(val))),
+      ),
+    [data.inventory],
+  );
 
   const filteredInventory = useMemo(() => {
-    const text = query.trim().toLowerCase();
     return data.inventory.filter(item => {
       const warehouse = data.warehouses.find(row => row.id === item.warehouseId);
-      const matchesText =
-        !text ||
-        [
-          item.name,
-          item.category,
-          item.size,
-          item.sku,
-          item.locationCode,
-          warehouse?.name,
-          data.stores.find(store => store.id === item.storeId)?.name,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-          .includes(text);
-      const matchesStore = !selectedStoreId || item.storeId === selectedStoreId;
+      const storeName = data.stores.find(store => store.id === item.storeId)?.name;
+      const matchesText = matchesSearch(
+        inventorySearchText(item, [warehouse?.name || '', storeName || '']),
+        query,
+      );
+      const matchesStore = storeId === '' || item.storeId === storeId;
       const matchesWarehouse = warehouseId === '' || item.warehouseId === warehouseId;
       const matchesCategory = categoryFilter === '' || item.category === categoryFilter;
+      const matchesBrand = brandFilter === '' || item.brand === brandFilter;
       const matchesSize = sizeFilter === '' || item.size === sizeFilter;
       const matchesLocation = locationFilter === '' || item.locationCode === locationFilter;
       const matchesLowStock = !lowStockOnly || getStockAlertLevel(item) !== 'ok';
@@ -140,12 +126,14 @@ export function InventoryScreen({ navigation }: Props) {
         matchesStore &&
         matchesWarehouse &&
         matchesCategory &&
+        matchesBrand &&
         matchesSize &&
         matchesLocation &&
         matchesLowStock
       );
     });
   }, [
+    brandFilter,
     categoryFilter,
     data.inventory,
     data.stores,
@@ -153,7 +141,7 @@ export function InventoryScreen({ navigation }: Props) {
     locationFilter,
     lowStockOnly,
     query,
-    selectedStoreId,
+    storeId,
     sizeFilter,
     warehouseId,
   ]);
@@ -167,70 +155,6 @@ export function InventoryScreen({ navigation }: Props) {
       location.storeId === selectedItem?.storeId &&
       location.warehouseId === (moveWarehouseId || moveWarehouses[0]?.id || ''),
   );
-
-  const canAddProduct =
-    name.trim().length > 0 &&
-    category.trim().length > 0 &&
-    selectedStoreId.length > 0 &&
-    selectedWarehouseId.length > 0 &&
-    locationCode.trim().length > 0 &&
-    quantity.trim().length > 0 &&
-    Number(quantity) > 0;
-
-  const submitProduct = async () => {
-    if (!name.trim()) {
-      Alert.alert('Error', 'Please enter product name.');
-      return;
-    }
-    if (!category.trim()) {
-      Alert.alert('Error', 'Please enter category.');
-      return;
-    }
-    if (!selectedStoreId) {
-      Alert.alert('Error', 'Please select a store.');
-      return;
-    }
-    if (!selectedWarehouseId) {
-      Alert.alert('Error', 'Please select a warehouse.');
-      return;
-    }
-    if (!locationCode.trim()) {
-      Alert.alert('Error', 'Please select a location.');
-      return;
-    }
-    if (!quantity || Number(quantity) <= 0) {
-      Alert.alert('Error', 'Please enter a valid quantity (greater than 0).');
-      return;
-    }
-
-    try {
-      await saveProduct(
-        {
-          name: name.trim(),
-          category: category.trim(),
-          size: size.trim() || '',
-          sku: sku.trim() || '',
-          storeId: selectedStoreId,
-          warehouseId: selectedWarehouseId,
-          locationCode: locationCode.trim(),
-          quantity: quantity,
-          minimumQuantity: minimumQuantity || '1',
-        },
-        profile,
-        data.inventory,
-      );
-
-      setName('');
-      setCategory('');
-      setSize('');
-      setSku('');
-      setLocationCode('');
-      setQuantity('');
-      Alert.alert('Success', 'Product added successfully!');
-    } catch {
-      Alert.alert('Error', 'Could not save product. Please try again.');
-    }
-  };
 
   const submitOperation = async (item: InventoryItem) => {
     try {
@@ -276,6 +200,7 @@ export function InventoryScreen({ navigation }: Props) {
     storeId !== '',
     warehouseId !== '',
     categoryFilter !== '',
+    brandFilter !== '',
     sizeFilter !== '',
     locationFilter !== '',
     lowStockOnly,
@@ -316,7 +241,7 @@ export function InventoryScreen({ navigation }: Props) {
           <AppTextInput
             label=""
             onChangeText={setQuery}
-            placeholder="Name, size, SKU, location, store…"
+            placeholder="Type initials e.g. LB · name, SKU, location…"
             value={query}
             style={styles.searchInput}
           />
@@ -386,10 +311,10 @@ export function InventoryScreen({ navigation }: Props) {
         {/* Expanded filter panel */}
         {filtersOpen && (
           <View style={styles.expandedFilters}>
-            {/* Warehouse row */}
-            {warehouses.length > 0 && (
+            {/* Godown / warehouse row — only shown once a store is selected */}
+            {storeId !== '' && filterWarehouses.length > 0 && (
               <View style={styles.filterGroup}>
-                <Text style={styles.filterGroupLabel}>Warehouse</Text>
+                <Text style={styles.filterGroupLabel}>Godown</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -401,7 +326,7 @@ export function InventoryScreen({ navigation }: Props) {
                       All
                     </Text>
                   </Pressable>
-                  {warehouses.map(wh => (
+                  {filterWarehouses.map(wh => (
                     <Pressable
                       key={wh.id}
                       onPress={() => setWarehouseId(wh.id === warehouseId ? '' : wh.id)}
@@ -409,6 +334,36 @@ export function InventoryScreen({ navigation }: Props) {
                       <Text
                         style={[styles.chipText, warehouseId === wh.id && styles.chipTextActive]}>
                         {wh.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Brand row */}
+            {brands.length > 0 && (
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterGroupLabel}>Brand</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipRow}>
+                  <Pressable
+                    onPress={() => setBrandFilter('')}
+                    style={[styles.chip, brandFilter === '' && styles.chipActive]}>
+                    <Text style={[styles.chipText, brandFilter === '' && styles.chipTextActive]}>
+                      All
+                    </Text>
+                  </Pressable>
+                  {brands.map(b => (
+                    <Pressable
+                      key={b}
+                      onPress={() => setBrandFilter(b === brandFilter ? '' : b)}
+                      style={[styles.chip, brandFilter === b && styles.chipActive]}>
+                      <Text
+                        style={[styles.chipText, brandFilter === b && styles.chipTextActive]}>
+                        {b}
                       </Text>
                     </Pressable>
                   ))}
@@ -519,6 +474,7 @@ export function InventoryScreen({ navigation }: Props) {
                   setStoreId('');
                   setWarehouseId('');
                   setCategoryFilter('');
+                  setBrandFilter('');
                   setSizeFilter('');
                   setLocationFilter('');
                   setLowStockOnly(false);
@@ -553,8 +509,13 @@ export function InventoryScreen({ navigation }: Props) {
               style={[styles.itemCard, alertLevel !== 'ok' && styles.itemCardAlert, isSelected && styles.itemCardSelected]}>
               <View style={styles.itemHeader}>
                 <View style={styles.itemTitleWrap}>
-                  <AppIcon name="box" size={16} tintColor={colors.primary} />
-                  <Text style={styles.itemName}>{item.name}</Text>
+                  <ProductThumbnail uri={item.photoUrl} size={44} />
+                  <View style={styles.itemTitleTextWrap}>
+                    <Text style={styles.itemName}>{item.name}</Text>
+                    {item.brand ? (
+                      <Text style={styles.itemBrand}>{item.brand}</Text>
+                    ) : null}
+                  </View>
                 </View>
                 <View style={styles.itemHeaderRight}>
                   <Text style={[styles.itemQty, alertLevel !== 'ok' && styles.itemQtyAlert]}>{item.quantity}</Text>
@@ -573,7 +534,8 @@ export function InventoryScreen({ navigation }: Props) {
                 </Text>
               </View>
               <Text style={styles.metaText}>
-                {item.category} · Size {item.size || '—'} · SKU {item.sku || 'Not set'} · Min {item.minimumQuantity}
+                {item.category} · Size {item.size || '—'}
+                {item.glaze ? ` · ${glazeLabel(item.glaze)}` : ''} · SKU {item.sku || 'Not set'} · Min {item.minimumQuantity}
               </Text>
               <StatusBadge label={stockAlertLabel(alertLevel)} tone={alertTone(alertLevel)} />
               {isSelected ? (
@@ -965,11 +927,19 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     flex: 1,
   },
+  itemTitleTextWrap: {
+    flex: 1,
+  },
   itemName: {
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.md,
     color: colors.ink,
-    flex: 1,
+  },
+  itemBrand: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.accent,
+    marginTop: 2,
   },
   itemQty: {
     fontFamily: typography.fontFamily.bold,

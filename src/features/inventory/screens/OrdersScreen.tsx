@@ -4,12 +4,19 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
 import { FilterChips } from '../../../components/FilterChips';
+import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SelectPill } from '../../../components/SelectPill';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { readableDate, updateOrderStatus } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
+import {
+  orderStatusFlow,
+  orderStatusLabel,
+  orderStatusTone,
+  resolveOrderItems,
+} from '../../../utils/inventoryHelpers';
 import type { AppStackParamList } from '../../../navigation/types';
 import type { OrderStatus } from '../../../types/models';
 import { colors } from '../../../theme/colors';
@@ -18,21 +25,14 @@ import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Orders'>;
-const statuses: OrderStatus[] = ['pending', 'processing', 'completed', 'cancelled'];
+const statuses: OrderStatus[] = orderStatusFlow;
 const ALL = '__all__';
-
-const statusTone: Record<OrderStatus, 'pending' | 'processing' | 'completed' | 'cancelled'> = {
-  pending: 'pending',
-  processing: 'processing',
-  completed: 'completed',
-  cancelled: 'cancelled',
-};
 
 export function OrdersScreen({ navigation }: Props) {
   const { profile } = useAuth();
   const data = useInventoryData();
   const [storeId, setStoreId] = useState('');
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | typeof ALL>('pending');
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | typeof ALL>(ALL);
 
   const filteredOrders = useMemo(() => {
     return data.orders.filter(order => {
@@ -45,8 +45,8 @@ export function OrdersScreen({ navigation }: Props) {
   return (
     <ScreenShell
       onBack={navigation.canGoBack() ? navigation.goBack : undefined}
-      subtitle="Filter pending, processing, completed, or cancelled customer orders."
-      title="Pending Orders List">
+      subtitle="Track orders through ordered → billed → out for delivery → delivered."
+      title="Orders">
       <FilterChips
         label="Store Filter"
         onChange={value => setStoreId(value === ALL ? '' : value)}
@@ -61,7 +61,7 @@ export function OrdersScreen({ navigation }: Props) {
         onChange={value => setStatusFilter(value as OrderStatus | typeof ALL)}
         options={[
           { label: 'All Statuses', value: ALL },
-          ...statuses.map(status => ({ label: status.replaceAll('_', ' '), value: status })),
+          ...statuses.map(status => ({ label: orderStatusLabel(status), value: status })),
         ]}
         value={statusFilter}
       />
@@ -78,11 +78,20 @@ export function OrdersScreen({ navigation }: Props) {
                   <AppIcon name="shoppingBag" size={16} tintColor={colors.accent} />
                   <Text style={styles.customerName}>{order.customerName}</Text>
                 </View>
-                <StatusBadge label={order.status} tone={statusTone[order.status]} />
+                <StatusBadge
+                  label={orderStatusLabel(order.status)}
+                  tone={orderStatusTone(order.status)}
+                />
               </View>
-              <Text style={styles.itemDetail}>
-                {order.productName} × {order.quantity}
-              </Text>
+              {resolveOrderItems(order).map((line, index) => (
+                <View key={`${line.productId}-${index}`} style={styles.lineRow}>
+                  <ProductThumbnail uri={line.photoUrl} size={36} radius={8} />
+                  <Text style={styles.itemDetail} numberOfLines={1}>
+                    {line.productName}
+                    {line.brand ? ` · ${line.brand}` : ''} × {line.quantity}
+                  </Text>
+                </View>
+              ))}
               <View style={styles.metaRow}>
                 <AppIcon name="store" size={14} tintColor={colors.muted} />
                 <Text style={styles.metaText}>{store}</Text>
@@ -98,7 +107,7 @@ export function OrdersScreen({ navigation }: Props) {
                 <SelectPill
                   label="Change Status"
                   onChange={value => updateOrderStatus(order, value as OrderStatus, profile)}
-                  options={statuses.map(status => ({ label: status.replaceAll('_', ' '), value: status }))}
+                  options={statuses.map(status => ({ label: orderStatusLabel(status), value: status }))}
                   value={order.status}
                 />
               </View>
@@ -157,11 +166,17 @@ const styles = StyleSheet.create({
     color: colors.ink,
     flex: 1,
   },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
   itemDetail: {
+    flex: 1,
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.sm,
     color: colors.inkSoft,
-    marginBottom: spacing.sm,
   },
   metaRow: {
     flexDirection: 'row',

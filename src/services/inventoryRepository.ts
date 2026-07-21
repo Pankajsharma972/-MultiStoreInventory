@@ -1,12 +1,13 @@
 import firestore from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
-import { collections, db, firebaseFunctions } from './firebase';
+import { collections, db, firebaseFunctions, firebaseStorage } from './firebase';
 import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelpers';
 import type {
   ActivityAction,
   CustomerOrder,
   DeliveryStatus,
   InventoryItem,
+  OrderLineItem,
   OrderStatus,
   PendingDelivery,
   StockTransfer,
@@ -16,6 +17,19 @@ import type {
   UserRole,
   Warehouse,
 } from '../types/models';
+
+// Upload a local image (from camera/gallery) to Firebase Storage and return its
+// public download URL. Used for design/product photos.
+export async function uploadProductPhoto(localUri: string): Promise<string> {
+  if (!localUri) {
+    throw new Error('No image selected.');
+  }
+  const extension = localUri.split('.').pop()?.split('?')[0] || 'jpg';
+  const path = `product-photos/${Date.now()}-${Math.round(Math.random() * 1e6)}.${extension}`;
+  const ref = firebaseStorage.ref(path);
+  await ref.putFile(localUri);
+  return ref.getDownloadURL();
+}
 
 type Doc<T> = T & { id: string };
 
@@ -258,8 +272,11 @@ export async function saveProduct(
   await db.collection(collections.inventory).add({
     name: payload.name.trim(),
     category: payload.category.trim(),
+    brand: payload.brand?.trim() || '',
+    glaze: payload.glaze || '',
     size: payload.size?.trim() || '',
     sku: payload.sku?.trim() || '',
+    photoUrl: payload.photoUrl?.trim() || '',
     storeId: payload.storeId,
     warehouseId: payload.warehouseId,
     locationCode: normalizedLocation,
@@ -454,48 +471,192 @@ export async function createTransfer(
   });
 }
 
+// Statuses whose stock has been deducted from inventory and can still be
+// returned to stock if the order is cancelled.
+const DEDUCTED_STATUSES: OrderStatus[] = ['ordered', 'billed', 'out_for_delivery'];
+
+// Create a multi-design customer order. Placing the order deducts every line
+// item from live inventory in a single atomic transaction (stock-after-order),
+// then records the order and a matching pending delivery.
 export async function createOrder(
-  payload: Omit<CustomerOrder, 'id' | 'status' | 'deliveryStatus'> & {
-    quantity: number;
+  payload: {
+    customerName: string;
+    customerPhone?: string;
+    storeId: string;
+    expectedDeliveryDate?: string;
+    items: OrderLineItem[];
   },
   user: UserProfile | null,
-  inventoryItem?: InventoryItem | null,
 ) {
-  if (!payload.customerName.trim() || payload.quantity <= 0) {
-    throw new Error('Customer name and quantity are required.');
+  const customerName = payload.customerName.trim();
+  if (!customerName) {
+    throw new Error('Customer name is required.');
+  }
+  const items = (payload.items || []).filter(item => Number(item.quantity) > 0);
+  if (items.length === 0) {
+    throw new Error('Add at least one design with a quantity to the order.');
   }
 
-  if (inventoryItem && payload.quantity > inventoryItem.quantity) {
-    throw new Error(
-      `Only ${inventoryItem.quantity} units available for ${inventoryItem.name}.`,
+  // Aggregate quantities per product so the same design added twice is deducted
+  // once (Firestore transactions forbid reading a doc after writing it).
+  const requiredByProduct = new Map<string, number>();
+  items.forEach(item => {
+    requiredByProduct.set(
+      item.productId,
+      (requiredByProduct.get(item.productId) || 0) + Number(item.quantity),
     );
-  }
+  });
 
-  const order = {
-    ...payload,
-    status: 'pending' as OrderStatus,
-    deliveryStatus: 'pending' as DeliveryStatus,
-    createdAt: firestore.FieldValue.serverTimestamp(),
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  };
-  const ref = await db.collection(collections.orders).add(order);
-  await db.collection(collections.deliveries).add({
-    orderId: ref.id,
-    customerName: payload.customerName,
-    productName: payload.productName,
-    quantity: payload.quantity,
-    storeId: payload.storeId,
-    status: 'pending',
-    expectedDeliveryDate: payload.expectedDeliveryDate || '',
-    createdAt: firestore.FieldValue.serverTimestamp(),
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  } satisfies Omit<PendingDelivery, 'id'> & Record<string, unknown>);
+  const orderRef = db.collection(collections.orders).doc();
+  const deliveryRef = db.collection(collections.deliveries).doc();
+
+  await db.runTransaction(async transaction => {
+    const productIds = Array.from(requiredByProduct.keys());
+    const snaps = await Promise.all(
+      productIds.map(id =>
+        transaction.get(db.collection(collections.inventory).doc(id)),
+      ),
+    );
+
+    snaps.forEach((snap, index) => {
+      const productId = productIds[index];
+      const inventoryItem = snap.data() as InventoryItem | undefined;
+      const required = requiredByProduct.get(productId) || 0;
+      if (!inventoryItem) {
+        throw new Error('One of the selected designs is no longer available.');
+      }
+      if (Number(inventoryItem.quantity || 0) < required) {
+        throw new Error(
+          `Only ${inventoryItem.quantity} units of ${inventoryItem.name} available.`,
+        );
+      }
+    });
+
+    snaps.forEach((snap, index) => {
+      transaction.update(snap.ref, {
+        quantity: firestore.FieldValue.increment(-(requiredByProduct.get(productIds[index]) || 0)),
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    const summary = items[0];
+    const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity), 0);
+
+    transaction.set(orderRef, {
+      customerName,
+      customerPhone: payload.customerPhone?.trim() || '',
+      productId: summary.productId,
+      productName: summary.productName,
+      quantity: totalQuantity,
+      items,
+      storeId: payload.storeId,
+      status: 'ordered' as OrderStatus,
+      deliveryStatus: 'ordered' as DeliveryStatus,
+      expectedDeliveryDate: payload.expectedDeliveryDate?.trim() || '',
+      createdAt: firestore.FieldValue.serverTimestamp(),
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    });
+
+    transaction.set(deliveryRef, {
+      orderId: orderRef.id,
+      customerName,
+      productName: summary.productName,
+      quantity: totalQuantity,
+      items,
+      storeId: payload.storeId,
+      status: 'ordered' as DeliveryStatus,
+      expectedDeliveryDate: payload.expectedDeliveryDate?.trim() || '',
+      createdAt: firestore.FieldValue.serverTimestamp(),
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  const summaryLabel =
+    items.length === 1
+      ? `${items[0].quantity} ${items[0].productName}`
+      : `${items.length} designs (${items.reduce((sum, item) => sum + Number(item.quantity), 0)} units)`;
+
   await addActivity({
     action: 'Order Created',
-    detail: `${payload.customerName} ordered ${payload.quantity} ${payload.productName}`,
+    detail: `${customerName} ordered ${summaryLabel} — stock deducted`,
     storeId: payload.storeId,
     user,
   });
+}
+
+function orderLineItemsOf(order: {
+  items?: OrderLineItem[];
+  productId: string;
+  productName: string;
+  quantity: number;
+}): OrderLineItem[] {
+  if (order.items && order.items.length > 0) {
+    return order.items;
+  }
+  return [
+    { productId: order.productId, productName: order.productName, quantity: order.quantity },
+  ];
+}
+
+// Move an order (and its mirrored delivery) to a new lifecycle status. When an
+// order that still holds deducted stock is cancelled, the units are returned to
+// inventory.
+async function transitionOrder(orderId: string, nextStatus: OrderStatus) {
+  const restored = await db.runTransaction(async transaction => {
+    const orderRef = db.collection(collections.orders).doc(orderId);
+    const orderSnap = await transaction.get(orderRef);
+    const order = orderSnap.data() as CustomerOrder | undefined;
+    if (!order) {
+      throw new Error('Order not found.');
+    }
+
+    const previousStatus = order.status;
+    const shouldRestore =
+      nextStatus === 'cancelled' && DEDUCTED_STATUSES.includes(previousStatus);
+
+    if (shouldRestore) {
+      const items = orderLineItemsOf(order);
+      const restoreByProduct = new Map<string, number>();
+      items.forEach(item => {
+        restoreByProduct.set(
+          item.productId,
+          (restoreByProduct.get(item.productId) || 0) + Number(item.quantity),
+        );
+      });
+      restoreByProduct.forEach((qty, productId) => {
+        transaction.update(db.collection(collections.inventory).doc(productId), {
+          quantity: firestore.FieldValue.increment(qty),
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+        });
+      });
+    }
+
+    transaction.update(orderRef, {
+      status: nextStatus,
+      deliveryStatus: nextStatus,
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    });
+
+    return shouldRestore;
+  });
+
+  // Keep mirrored delivery docs in sync (queries aren't allowed in transactions).
+  const deliveriesSnap = await db
+    .collection(collections.deliveries)
+    .where('orderId', '==', orderId)
+    .get();
+  if (!deliveriesSnap.empty) {
+    const batch = db.batch();
+    deliveriesSnap.docs.forEach(doc => {
+      batch.update(doc.ref, {
+        status: nextStatus,
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+
+  return restored;
 }
 
 export async function updateOrderStatus(
@@ -503,57 +664,15 @@ export async function updateOrderStatus(
   status: OrderStatus,
   user: UserProfile | null,
 ) {
-  await db.collection(collections.orders).doc(order.id).update({
-    status,
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  });
-
-  if (status === 'cancelled') {
-    await db.collection(collections.deliveries)
-      .where('orderId', '==', order.id)
-      .get()
-      .then(snapshot => {
-        const batch = db.batch();
-        snapshot.docs.forEach(doc => {
-          batch.update(doc.ref, {
-            status: 'cancelled',
-            updatedAt: firestore.FieldValue.serverTimestamp(),
-          });
-        });
-        return batch.commit();
-      });
+  if (status === order.status) {
+    return;
   }
-
+  const restored = await transitionOrder(order.id, status);
   await addActivity({
     action: 'Order Updated',
-    detail: `${order.customerName} order changed to ${status}`,
-    storeId: order.storeId,
-    user,
-  });
-}
-
-async function deductInventoryForOrder(order: CustomerOrder, user: UserProfile | null) {
-  const inventoryRef = db.collection(collections.inventory).doc(order.productId);
-  const inventorySnap = await inventoryRef.get();
-  const inventoryItem = inventorySnap.data() as InventoryItem | undefined;
-
-  if (!inventoryItem) {
-    throw new Error('Inventory item for this order was not found.');
-  }
-  if (Number(inventoryItem.quantity || 0) < order.quantity) {
-    throw new Error(
-      `Insufficient stock to deliver. Available ${inventoryItem.quantity}, required ${order.quantity}.`,
-    );
-  }
-
-  await inventoryRef.update({
-    quantity: firestore.FieldValue.increment(-order.quantity),
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  });
-
-  await addActivity({
-    action: 'Stock Updated',
-    detail: `${order.productName}: ${order.quantity} units deducted for delivery to ${order.customerName}`,
+    detail: `${order.customerName} order → ${status.replace(/_/g, ' ')}${
+      restored ? ' (stock returned)' : ''
+    }`,
     storeId: order.storeId,
     user,
   });
@@ -564,35 +683,25 @@ export async function updateDeliveryStatus(
   status: DeliveryStatus,
   user: UserProfile | null,
 ) {
-  if (status === 'delivered' && delivery.orderId) {
-    const orderSnap = await db.collection(collections.orders).doc(delivery.orderId).get();
-    const order = orderSnap.data() as CustomerOrder | undefined;
-    if (order && order.status !== 'completed') {
-      await deductInventoryForOrder({ ...order, id: delivery.orderId }, user);
-    }
+  if (status === delivery.status) {
+    return;
   }
 
-  await db.collection(collections.deliveries).doc(delivery.id).update({
-    status,
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  });
-
+  let restored = false;
   if (delivery.orderId) {
-    await db.collection(collections.orders).doc(delivery.orderId).update({
-      deliveryStatus: status,
-      status:
-        status === 'delivered'
-          ? 'completed'
-          : status === 'cancelled'
-            ? 'cancelled'
-            : 'processing',
+    restored = await transitionOrder(delivery.orderId, status);
+  } else {
+    await db.collection(collections.deliveries).doc(delivery.id).update({
+      status,
       updatedAt: firestore.FieldValue.serverTimestamp(),
     });
   }
 
   await addActivity({
     action: status === 'delivered' ? 'Delivery Completed' : 'Delivery Updated',
-    detail: `${delivery.customerName} delivery changed to ${status.replaceAll('_', ' ')}`,
+    detail: `${delivery.customerName} delivery → ${status.replace(/_/g, ' ')}${
+      restored ? ' (stock returned)' : ''
+    }`,
     storeId: delivery.storeId,
     user,
   });

@@ -4,12 +4,19 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
 import { FilterChips } from '../../../components/FilterChips';
+import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SelectPill } from '../../../components/SelectPill';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { readableDate, updateDeliveryStatus } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
+import {
+  orderStatusFlow,
+  orderStatusLabel,
+  orderStatusTone,
+  resolveOrderItems,
+} from '../../../utils/inventoryHelpers';
 import { colors } from '../../../theme/colors';
 import { shadows } from '../../../theme/shadows';
 import { spacing } from '../../../theme/spacing';
@@ -19,15 +26,8 @@ import type { DeliveryStatus } from '../../../types/models';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Deliveries'>;
 
-const statuses: DeliveryStatus[] = ['pending', 'out_for_delivery', 'delivered', 'cancelled'];
+const statuses: DeliveryStatus[] = orderStatusFlow;
 const ALL = '__all__';
-
-const deliveryTone: Record<DeliveryStatus, 'pending' | 'processing' | 'completed' | 'cancelled'> = {
-  pending: 'pending',
-  out_for_delivery: 'processing',
-  delivered: 'completed',
-  cancelled: 'cancelled',
-};
 
 export function DeliveriesScreen({ navigation }: Props) {
   const { profile } = useAuth();
@@ -44,14 +44,14 @@ export function DeliveriesScreen({ navigation }: Props) {
         statusFilter === ALL
           ? true
           : statusFilter === 'pending_only'
-            ? delivery.status === 'pending' || delivery.status === 'out_for_delivery'
+            ? delivery.status !== 'delivered' && delivery.status !== 'cancelled'
             : delivery.status === statusFilter;
       return matchesStore && matchesStatus;
     });
   }, [data.deliveries, statusFilter, storeFilter]);
 
   const pendingCount = data.deliveries.filter(
-    d => d.status === 'pending' || d.status === 'out_for_delivery',
+    d => d.status !== 'delivered' && d.status !== 'cancelled',
   ).length;
 
   return (
@@ -84,9 +84,9 @@ export function DeliveriesScreen({ navigation }: Props) {
           setStatusFilter(value as DeliveryStatus | typeof ALL | 'pending_only')
         }
         options={[
-          { label: 'Pending Only', value: 'pending_only' },
+          { label: 'Active Only', value: 'pending_only' },
           { label: 'All Statuses', value: ALL },
-          ...statuses.map(status => ({ label: status.replaceAll('_', ' '), value: status })),
+          ...statuses.map(status => ({ label: orderStatusLabel(status), value: status })),
         ]}
         value={statusFilter}
       />
@@ -108,15 +108,21 @@ export function DeliveriesScreen({ navigation }: Props) {
                   <AppIcon name="user" size={16} tintColor={colors.accent} />
                   <Text style={styles.customerName}>{delivery.customerName}</Text>
                 </View>
-                <StatusBadge label={delivery.status.replaceAll('_', ' ')} tone={deliveryTone[delivery.status]} />
+                <StatusBadge
+                  label={orderStatusLabel(delivery.status)}
+                  tone={orderStatusTone(delivery.status)}
+                />
               </View>
 
-              <View style={styles.productRow}>
-                <AppIcon name="box" size={14} tintColor={colors.muted} />
-                <Text style={styles.productText}>
-                  {delivery.productName} × {delivery.quantity}
-                </Text>
-              </View>
+              {resolveOrderItems(delivery).map((line, index) => (
+                <View key={`${line.productId}-${index}`} style={styles.productRow}>
+                  <ProductThumbnail uri={line.photoUrl} size={32} radius={8} />
+                  <Text style={styles.productText} numberOfLines={1}>
+                    {line.productName}
+                    {line.brand ? ` · ${line.brand}` : ''} × {line.quantity}
+                  </Text>
+                </View>
+              ))}
 
               <View style={styles.metaRow}>
                 <AppIcon name="store" size={14} tintColor={colors.muted} />
@@ -138,7 +144,7 @@ export function DeliveriesScreen({ navigation }: Props) {
                   label="Update Status"
                   onChange={value => updateDeliveryStatus(delivery, value as DeliveryStatus, profile)}
                   options={statuses.map(status => ({
-                    label: status.replaceAll('_', ' '),
+                    label: orderStatusLabel(status),
                     value: status,
                   }))}
                   value={delivery.status}
@@ -222,6 +228,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   productText: {
+    flex: 1,
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.sm,
     color: colors.inkSoft,

@@ -149,7 +149,7 @@ export function InventoryDataProvider({ children }: { children: React.ReactNode 
         outOfStock: lowStockItems.filter(item => getStockAlertLevel(item) === 'out_of_stock')
           .length,
         pendingOrders: visibleOrders.filter(
-          order => order.status === 'pending' || order.status === 'processing',
+          order => order.status !== 'delivered' && order.status !== 'cancelled',
         ).length,
         pendingDeliveries: visibleDeliveries.filter(
           delivery => delivery.status !== 'delivered' && delivery.status !== 'cancelled',
