@@ -124,6 +124,8 @@ export function NewProductScreen({ route, navigation }: Props) {
 
   const canSave = useMemo(() => {
     if (!name.trim() || !category.trim()) return false;
+    // Image is required for all products
+    if (!photoUrl.trim()) return false;
     if (editingItem) return true;
 
     return locations.every(
@@ -136,7 +138,7 @@ export function NewProductScreen({ route, navigation }: Props) {
         loc.minimumQuantity.trim() !== '' &&
         Number(loc.minimumQuantity) >= 0
     );
-  }, [name, category, locations, editingItem]);
+  }, [name, category, photoUrl, locations, editingItem]);
 
   // Memoized glaze options to prevent recreation on every render
   const glazeOptionsWithAdd = useMemo(() => {
@@ -300,14 +302,71 @@ export function NewProductScreen({ route, navigation }: Props) {
       Alert.alert('Error', 'Could not add new glaze.');
     }
   };
-
+const navigateToInventory = useCallback(() => {
+  navigation.reset({
+    index: 0,
+    routes: [
+      {
+        name: 'MainTabs',
+        state: {
+          routes: [
+            { name: 'HomeTab' },
+            { name: 'Inventory' },
+          ],
+          index: 1, // Index of Inventory tab
+        },
+      },
+    ],
+  });
+}, [navigation]);
   const handleSave = async () => {
-    if (!canSave) return;
-    setSaving(true);
+  if (!name.trim() || !category.trim()) {
+    Alert.alert('Error', 'Product name and category are required.');
+    return;
+  }
 
-    try {
-      if (editingItem) {
-        await db.collection(collections.inventory).doc(editingItem.id).update({
+  if (!photoUrl.trim()) {
+    Alert.alert('Error', 'Please select an image.');
+    return;
+  }
+
+  if (!canSave) return;
+  setSaving(true);
+
+  try {
+    if (editingItem) {
+      await db.collection(collections.inventory).doc(editingItem.id).update({
+        name: name.trim(),
+        category: category.trim(),
+        brand: brand.trim(),
+        glaze,
+        size: size.trim(),
+        sku: sku.trim(),
+        photoUrl: photoUrl.trim(),
+        minimumQuantity: Number(editMinimum || 0),
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      });
+
+      await db.collection(collections.activityLogs).add({
+        action: 'Product Updated',
+        detail: `Product "${editingItem.name}" updated (details, brand, glaze, photo, threshold)`,
+        storeId: editingItem.storeId,
+        createdBy: profile?.name || profile?.email || 'System',
+        createdAt: firestore.FieldValue.serverTimestamp(),
+      });
+
+      Alert.alert('Success', 'Product details updated successfully.', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
+    } else {
+      const batch = db.batch();
+
+      for (const loc of locations) {
+        const docRef = db.collection(collections.inventory).doc();
+        const quantity = Number(loc.quantity || 0);
+        const minimumQuantity = Number(loc.minimumQuantity || 1);
+
+        batch.set(docRef, {
           name: name.trim(),
           category: category.trim(),
           brand: brand.trim(),
@@ -315,68 +374,41 @@ export function NewProductScreen({ route, navigation }: Props) {
           size: size.trim(),
           sku: sku.trim(),
           photoUrl: photoUrl.trim(),
-          minimumQuantity: Number(editMinimum || 0),
+          storeId: loc.storeId,
+          warehouseId: loc.warehouseId,
+          locationCode: loc.locationCode.toUpperCase(),
+          quantity,
+          minimumQuantity,
+          createdAt: firestore.FieldValue.serverTimestamp(),
           updatedAt: firestore.FieldValue.serverTimestamp(),
         });
 
-        await db.collection(collections.activityLogs).add({
-          action: 'Product Updated',
-          detail: `Product "${editingItem.name}" updated (details, brand, glaze, photo, threshold)`,
-          storeId: editingItem.storeId,
+        const logRef = db.collection(collections.activityLogs).doc();
+        batch.set(logRef, {
+          action: 'Product Created',
+          detail: `${name.trim()} added with ${quantity} units at location ${loc.locationCode.toUpperCase()}`,
+          storeId: loc.storeId,
           createdBy: profile?.name || profile?.email || 'System',
           createdAt: firestore.FieldValue.serverTimestamp(),
         });
-
-        Alert.alert('Success', 'Product details updated successfully.', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
-      } else {
-        const batch = db.batch();
-
-        for (const loc of locations) {
-          const docRef = db.collection(collections.inventory).doc();
-          const quantity = Number(loc.quantity || 0);
-          const minimumQuantity = Number(loc.minimumQuantity || 1);
-
-          batch.set(docRef, {
-            name: name.trim(),
-            category: category.trim(),
-            brand: brand.trim(),
-            glaze,
-            size: size.trim(),
-            sku: sku.trim(),
-            photoUrl: photoUrl.trim(),
-            storeId: loc.storeId,
-            warehouseId: loc.warehouseId,
-            locationCode: loc.locationCode.toUpperCase(),
-            quantity,
-            minimumQuantity,
-            createdAt: firestore.FieldValue.serverTimestamp(),
-            updatedAt: firestore.FieldValue.serverTimestamp(),
-          });
-
-          const logRef = db.collection(collections.activityLogs).doc();
-          batch.set(logRef, {
-            action: 'Product Created',
-            detail: `${name.trim()} added with ${quantity} units at location ${loc.locationCode.toUpperCase()}`,
-            storeId: loc.storeId,
-            createdBy: profile?.name || profile?.email || 'System',
-            createdAt: firestore.FieldValue.serverTimestamp(),
-          });
-        }
-
-        await batch.commit();
-        Alert.alert('Success', 'Product saved with specified locations.', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
       }
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not save product.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
+      await batch.commit();
+      
+      // Success - navigate to Inventory tab
+      Alert.alert('Success', 'Product saved with specified locations.', [
+        { 
+          text: 'OK', 
+          onPress: navigateToInventory
+        },
+      ]);
+    }
+  } catch (err: any) {
+    Alert.alert('Error', err.message || 'Could not save product.');
+  } finally {
+    setSaving(false);
+  }
+};
   // Manage Glazes Modal
   const ManageGlazesModal = () => (
     <Modal

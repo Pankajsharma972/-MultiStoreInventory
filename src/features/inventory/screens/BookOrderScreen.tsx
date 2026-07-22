@@ -1,12 +1,24 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+} from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
 import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
-import { SelectPill } from '../../../components/SelectPill';
+import { Dropdown } from '../../../components/Dropdown';
 import { createOrder } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
@@ -26,6 +38,29 @@ import type { InventoryItem, OrderLineItem } from '../../../types/models';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'BookOrder'>;
 
+// Calendar icon from assets
+const calendarIcon = require('../../../assets/calendar.png');
+
+// Formats a Date object to YYYY-MM-DD for storage/display
+function formatDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Get today's date as string
+function getTodayDate(): string {
+  return formatDate(new Date());
+}
+
+// Get date 7 days from now as string (default preset)
+function getDefaultDeliveryDate(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return formatDate(date);
+}
+
 export function BookOrderScreen({ navigation }: Props) {
   const { profile } = useAuth();
   const data = useInventoryData();
@@ -36,7 +71,9 @@ export function BookOrderScreen({ navigation }: Props) {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [storeId, setStoreId] = useState('');
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
+  // Default delivery date = 7 days from today
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(getDefaultDeliveryDate());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [query, setQuery] = useState('');
   const [booking, setBooking] = useState(false);
 
@@ -71,6 +108,19 @@ export function BookOrderScreen({ navigation }: Props) {
   };
 
   const canBook = customerName.trim().length > 0 && cartLines.length > 0;
+
+  const handleDateChange = (event: any, selected?: Date) => {
+    // On Android the picker closes itself after a pick/dismiss
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    if (event.type === 'dismissed') {
+      return;
+    }
+    if (selected) {
+      setExpectedDeliveryDate(formatDate(selected));
+    }
+  };
 
   const handleBookOrder = async () => {
     if (!canBook) {
@@ -114,160 +164,215 @@ export function BookOrderScreen({ navigation }: Props) {
       subtitle="Search designs, add multiple to the order, then place it."
       onBack={navigation.goBack}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Customer details */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconWrap}>
-              <AppIcon name="shoppingBag" size={18} tintColor={colors.primary} />
-            </View>
-            <Text style={styles.cardTitle}>Customer</Text>
-          </View>
-
-          <AppTextInput
-            label="Customer Name *"
-            onChangeText={setCustomerName}
-            placeholder="e.g. John Doe"
-            value={customerName}
-          />
-          <AppTextInput
-            keyboardType="phone-pad"
-            label="Phone"
-            onChangeText={setCustomerPhone}
-            placeholder="e.g. +91 98765 43210"
-            value={customerPhone}
-          />
-          <SelectPill
-            label="Store *"
-            onChange={value => {
-              setStoreId(value);
-              dispatch(clearCart());
-            }}
-            options={data.stores.map(store => ({ label: store.name, value: store.id }))}
-            value={activeStoreId}
-          />
-          <AppTextInput
-            label="Expected Delivery Date"
-            onChangeText={setExpectedDeliveryDate}
-            placeholder="YYYY-MM-DD"
-            value={expectedDeliveryDate}
-          />
-        </View>
-
-        {/* Design search + add */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconWrap}>
-              <AppIcon name="search" size={18} tintColor={colors.primary} />
-            </View>
-            <Text style={styles.cardTitle}>Add Designs</Text>
-          </View>
-
-          <View style={styles.searchRow}>
-            <AppIcon name="search" size={16} tintColor={colors.muted} />
-            <AppTextInput
-              label=""
-              onChangeText={setQuery}
-              placeholder="Type initials e.g. LB · name, SKU…"
-              value={query}
-              style={styles.searchInput}
-            />
-          </View>
-
-          {searchResults.length === 0 ? (
-            <Text style={styles.emptyText}>No matching designs in this store.</Text>
-          ) : (
-            searchResults.map(item => {
-              const warehouse = data.warehouses.find(row => row.id === item.warehouseId);
-              const inCart = cart[item.id] || 0;
-              const outOfStock = item.quantity <= 0;
-              return (
-                <View key={item.id} style={styles.resultRow}>
-                  <ProductThumbnail uri={item.photoUrl} size={48} />
-                  <View style={styles.resultInfo}>
-                    <Text style={styles.resultName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.resultMeta} numberOfLines={1}>
-                      {item.brand ? `${item.brand} · ` : ''}
-                      {item.size ? `Size ${item.size} · ` : ''}
-                      {item.glaze ? `${glazeLabel(item.glaze)} · ` : ''}
-                      {warehouse?.name || 'Godown'} · {item.locationCode}
-                    </Text>
-                    <Text style={[styles.resultQty, outOfStock && styles.resultQtyOut]}>
-                      {outOfStock ? 'Out of stock' : `${item.quantity} available`}
-                    </Text>
-                  </View>
-                  {inCart > 0 ? (
-                    <View style={styles.stepper}>
-                      <Pressable
-                        onPress={() => setQty(item.id, inCart - 1, item.quantity)}
-                        style={styles.stepBtn}>
-                        <Text style={styles.stepBtnText}>−</Text>
-                      </Pressable>
-                      <Text style={styles.stepValue}>{inCart}</Text>
-                      <Pressable
-                        onPress={() => setQty(item.id, inCart + 1, item.quantity)}
-                        style={styles.stepBtn}>
-                        <Text style={styles.stepBtnText}>+</Text>
-                      </Pressable>
-                    </View>
-                  ) : (
-                    <Pressable
-                      disabled={outOfStock}
-                      onPress={() => setQty(item.id, 1, item.quantity)}
-                      style={[styles.addBtn, outOfStock && styles.addBtnDisabled]}>
-                      <AppIcon name="plus" size={14} tintColor={colors.surface} />
-                      <Text style={styles.addBtnText}>Add</Text>
-                    </Pressable>
-                  )}
-                </View>
-              );
-            })
-          )}
-        </View>
-
-        {/* Cart */}
-        {cartLines.length > 0 ? (
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {/* Customer details */}
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.cardIconWrap}>
-                <AppIcon name="box" size={18} tintColor={colors.primary} />
+                <AppIcon name="shoppingBag" size={18} tintColor={colors.primary} />
               </View>
-              <Text style={styles.cardTitle}>
-                Order Items ({cartLines.length}) · {totalUnits} units
-              </Text>
+              <Text style={styles.cardTitle}>Customer</Text>
             </View>
-            {cartLines.map(({ item, qty }) => (
-              <View key={item.id} style={styles.cartLine}>
-                <ProductThumbnail uri={item.photoUrl} size={40} radius={10} />
-                <View style={styles.cartLineInfo}>
-                  <Text style={styles.cartLineName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.cartLineMeta}>× {qty}</Text>
-                </View>
-                <Pressable onPress={() => setQty(item.id, 0, item.quantity)} hitSlop={8}>
-                  <AppIcon name="trash" size={16} tintColor={colors.danger} />
+
+            <AppTextInput
+              label="Customer Name *"
+              onChangeText={setCustomerName}
+              placeholder="e.g. John Doe"
+              value={customerName}
+            />
+            <AppTextInput
+              keyboardType="phone-pad"
+              label="Phone"
+              onChangeText={setCustomerPhone}
+              placeholder="e.g. +91 98765 43210"
+              value={customerPhone}
+            />
+            <Dropdown
+              label="Store *"
+              placeholder="Select a store"
+              value={activeStoreId}
+              onChange={value => {
+                setStoreId(value);
+                dispatch(clearCart());
+              }}
+              options={data.stores.map(store => ({ label: store.name, value: store.id }))}
+              emptyText="No stores available"
+            />
+
+            {/* Expected Delivery Date — with calendar icon on right side - CENTERED */}
+            <View style={styles.dateInputWrapper}>
+              <AppTextInput
+                label="Expected Delivery Date"
+                onChangeText={setExpectedDeliveryDate}
+                placeholder="YYYY-MM-DD"
+                value={expectedDeliveryDate}
+                style={styles.dateInputField}
+                editable={false}
+                pointerEvents="none"
+              />
+              <Pressable
+                style={styles.calendarTapArea}
+                onPress={() => setShowDatePicker(true)}
+                hitSlop={8}>
+                <Image source={calendarIcon} style={styles.calendarIcon} />
+              </Pressable>
+            </View>
+
+            {showDatePicker ? (
+              <DateTimePicker
+                value={expectedDeliveryDate ? new Date(expectedDeliveryDate) : new Date()}
+                mode="date"
+                minimumDate={new Date()} // Past dates disabled
+                display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                onChange={handleDateChange}
+              />
+            ) : null}
+
+            {Platform.OS === 'ios' && showDatePicker ? (
+              <View style={styles.iosDatePickerActions}>
+                <Pressable onPress={() => setShowDatePicker(false)} style={styles.iosDateDoneBtn}>
+                  <Text style={styles.iosDateDoneText}>Done</Text>
                 </Pressable>
               </View>
-            ))}
+            ) : null}
           </View>
-        ) : null}
 
-        <View style={styles.actionContainer}>
-          <AppButton
-            disabled={!canBook || booking}
-            onPress={handleBookOrder}
-            title={booking ? 'Placing…' : `Place Order (${totalUnits})`}
-          />
-        </View>
-      </ScrollView>
+          {/* Design search + add */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={styles.cardIconWrap}>
+                <AppIcon name="search" size={18} tintColor={colors.primary} />
+              </View>
+              <Text style={styles.cardTitle}>Add Designs</Text>
+            </View>
+
+            {/* Search with icon on RIGHT side */}
+            <View style={styles.searchWrapper}>
+              <TextInput
+                style={styles.searchInputField}
+                placeholder="Type initials e.g. LB · name, SKU…"
+                placeholderTextColor={colors.muted}
+                value={query}
+                onChangeText={setQuery}
+                returnKeyType="search"
+                blurOnSubmit={false}
+              />
+              <AppIcon 
+                name="search" 
+                size={18} 
+                tintColor={colors.muted} 
+                style={styles.searchIconRight} 
+              />
+            </View>
+
+            {searchResults.length === 0 ? (
+              <Text style={styles.emptyText}>No matching designs in this store.</Text>
+            ) : (
+              searchResults.map(item => {
+                const warehouse = data.warehouses.find(row => row.id === item.warehouseId);
+                const inCart = cart[item.id] || 0;
+                const outOfStock = item.quantity <= 0;
+                return (
+                  <View key={item.id} style={styles.resultRow}>
+                    <ProductThumbnail uri={item.photoUrl} size={48} />
+                    <View style={styles.resultInfo}>
+                      <Text style={styles.resultName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.resultMeta} numberOfLines={1}>
+                        {item.brand ? `${item.brand} · ` : ''}
+                        {item.size ? `Size ${item.size} · ` : ''}
+                        {item.glaze ? `${glazeLabel(item.glaze)} · ` : ''}
+                        {warehouse?.name || 'Godown'} · {item.locationCode}
+                      </Text>
+                      <Text style={[styles.resultQty, outOfStock && styles.resultQtyOut]}>
+                        {outOfStock ? 'Out of stock' : `${item.quantity} available`}
+                      </Text>
+                    </View>
+                    {inCart > 0 ? (
+                      <View style={styles.stepper}>
+                        <Pressable
+                          onPress={() => setQty(item.id, inCart - 1, item.quantity)}
+                          style={styles.stepBtn}>
+                          <Text style={styles.stepBtnText}>−</Text>
+                        </Pressable>
+                        <Text style={styles.stepValue}>{inCart}</Text>
+                        <Pressable
+                          onPress={() => setQty(item.id, inCart + 1, item.quantity)}
+                          style={styles.stepBtn}>
+                          <Text style={styles.stepBtnText}>+</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable
+                        disabled={outOfStock}
+                        onPress={() => setQty(item.id, 1, item.quantity)}
+                        style={[styles.addBtn, outOfStock && styles.addBtnDisabled]}>
+                        <AppIcon name="plus" size={14} tintColor={colors.surface} />
+                        <Text style={styles.addBtnText}>Add</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          {/* Cart */}
+          {cartLines.length > 0 ? (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardIconWrap}>
+                  <AppIcon name="box" size={18} tintColor={colors.primary} />
+                </View>
+                <Text style={styles.cardTitle}>
+                  Order Items ({cartLines.length}) · {totalUnits} units
+                </Text>
+              </View>
+              {cartLines.map(({ item, qty }) => (
+                <View key={item.id} style={styles.cartLine}>
+                  <ProductThumbnail uri={item.photoUrl} size={40} radius={10} />
+                  <View style={styles.cartLineInfo}>
+                    <Text style={styles.cartLineName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.cartLineMeta}>× {qty}</Text>
+                  </View>
+                  <Pressable onPress={() => setQty(item.id, 0, item.quantity)} hitSlop={8}>
+                    <AppIcon name="trash" size={16} tintColor={colors.danger} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.actionContainer}>
+            <AppButton
+              disabled={!canBook || booking}
+              onPress={handleBookOrder}
+              title={booking ? 'Placing…' : `Place Order (${totalUnits})`}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   scrollContent: {
     paddingBottom: spacing.xxl + spacing.lg,
   },
@@ -300,14 +405,29 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     color: colors.ink,
   },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+  // Search bar: icon on RIGHT side
+  searchWrapper: {
+    position: 'relative',
     marginBottom: spacing.sm,
   },
-  searchInput: {
-    flex: 1,
+  searchIconRight: {
+    position: 'absolute',
+    right: 14,
+    top: '50%',
+    transform: [{ translateY: -9 }],
+    zIndex: 1,
+  },
+  searchInputField: {
+    height: 48,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: spacing.md,
+    paddingRight: 44,
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.md,
+    color: colors.ink,
   },
   emptyText: {
     fontFamily: typography.fontFamily.regular,
@@ -417,5 +537,45 @@ const styles = StyleSheet.create({
   actionContainer: {
     marginTop: spacing.md,
     paddingHorizontal: spacing.xs,
+  },
+  // Date Input Styles - Calendar icon CENTERED
+  dateInputWrapper: {
+    position: 'relative',
+    marginBottom: spacing.md,
+  },
+  dateInputField: {
+    paddingRight: 50,
+  },
+  calendarTapArea: {
+    position: 'absolute',
+    right: 12,
+    top: '50%',
+    transform: [{ translateY: -12 }],
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  calendarIcon: {
+    width: 24,
+    height: 24,
+    tintColor: colors.primary,
+    resizeMode: 'contain',
+  },
+  iosDatePickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: -spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  iosDateDoneBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  iosDateDoneText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.sm,
+    color: colors.primary,
   },
 });

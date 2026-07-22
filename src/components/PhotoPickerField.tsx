@@ -5,6 +5,7 @@ import {
   launchImageLibrary,
   type ImagePickerResponse,
 } from 'react-native-image-picker';
+import ImageResizer from 'react-native-image-resizer';
 import { AppIcon } from './AppIcon';
 import { uploadProductPhoto } from '../services/inventoryRepository';
 import { colors } from '../theme/colors';
@@ -58,6 +59,26 @@ const requestGalleryPermission = async (): Promise<boolean> => {
   }
 };
 
+// Compress image before upload
+const compressImage = async (uri: string): Promise<string> => {
+  try {
+    // Resize image to max 800px width/height with 70% quality
+    const response = await ImageResizer.createResizedImage(
+      uri,
+      800, // max width
+      800, // max height
+      'JPEG', // format
+      70, // quality (0-100)
+      0, // rotation
+      null, // output path (null = auto generate)
+    );
+    return response.uri;
+  } catch (error) {
+    console.warn('Image compression failed, using original:', error);
+    return uri;
+  }
+};
+
 export function PhotoPickerField({
   label = 'Design Photo',
   value,
@@ -83,11 +104,12 @@ export function PhotoPickerField({
     if (!asset?.uri) {
       return;
     }
-    // Strip the file:// prefix if present – Firebase putFile expects a native path
-    const cleanUri = asset.uri.startsWith('file://') ? asset.uri.replace('file://', '') : asset.uri;
+    
     setUploading(true);
     try {
-      const url = await uploadProductPhoto(cleanUri);
+      // Compress image before upload
+      const compressedUri = await compressImage(asset.uri);
+      const url = await uploadProductPhoto(compressedUri);
       onChange(url);
     } catch (error) {
       Alert.alert('Upload failed', (error as Error).message || 'Could not upload photo.');
@@ -97,7 +119,25 @@ export function PhotoPickerField({
   };
 
   const pickFromCamera = async () => {
-    launchCamera({ mediaType: 'photo', quality: 0.7 }, handleResponse);
+    // Request camera permission first
+    if (Platform.OS === 'android') {
+      const hasPermission = await requestCameraPermission();
+      if (!hasPermission) {
+        Alert.alert('Permission denied', 'Camera permission is required to take photos.');
+        return;
+      }
+    }
+    
+    launchCamera(
+      { 
+        mediaType: 'photo', 
+        quality: 0.5, // Lower quality for smaller file size
+        maxWidth: 800, // Max width
+        maxHeight: 800, // Max height
+        includeBase64: false,
+      }, 
+      handleResponse
+    );
   };
 
   const pickFromGallery = async () => {
@@ -106,7 +146,16 @@ export function PhotoPickerField({
       Alert.alert('Permission denied', 'Gallery permission is required to select photos.');
       return;
     }
-    launchImageLibrary({ mediaType: 'photo', quality: 0.7 }, handleResponse);
+    launchImageLibrary(
+      { 
+        mediaType: 'photo', 
+        quality: 0.5,
+        maxWidth: 800,
+        maxHeight: 800,
+        includeBase64: false,
+      }, 
+      handleResponse
+    );
   };
 
   return (

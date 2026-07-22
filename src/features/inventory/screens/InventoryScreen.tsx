@@ -8,7 +8,8 @@ import {
   Text,
   View,
   TextInput,
-  FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -32,6 +33,7 @@ import {
   moveStockWithinStore,
   receiveStock,
   removeDamagedStock,
+  deleteProduct,
 } from '../../../services/inventoryRepository';
 import {
   getStockAlertLevel,
@@ -94,11 +96,12 @@ export function InventoryScreen({ navigation }: Props) {
   
   const [operationType, setOperationType] = useState<StockOperationType>('receive');
   const [operationAmount, setOperationAmount] = useState('');
-  const [operationReason, setOperationReason] = useState('');
   const [moveWarehouseId, setMoveWarehouseId] = useState('');
   const [moveLocationCode, setMoveLocationCode] = useState('');
   const [selectedItemId, setSelectedItemId] = useState('');
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
+  const [contextMenuVisible, setContextMenuVisible] = useState(false);
+  const [contextMenuItemId, setContextMenuItemId] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
 
   // Godowns (warehouses) belonging to the store selected in the filter bar.
@@ -184,12 +187,12 @@ export function InventoryScreen({ navigation }: Props) {
       if (operationType === 'receive') {
         await receiveStock(item, operationAmount, profile);
       } else if (operationType === 'adjust') {
-        await adjustStock(item, operationAmount, operationReason || 'Manual adjustment', profile);
+        await adjustStock(item, operationAmount, 'Manual adjustment', profile);
       } else if (operationType === 'damaged') {
         await removeDamagedStock(
           item,
           operationAmount,
-          operationReason || 'Damaged stock removed',
+          'Damaged stock removed',
           profile,
         );
       } else if (operationType === 'move') {
@@ -210,7 +213,6 @@ export function InventoryScreen({ navigation }: Props) {
         );
       }
       setOperationAmount('');
-      setOperationReason('');
       setUpdateModalVisible(false);
       Alert.alert('Updated', 'Inventory has been updated.');
     } catch {
@@ -231,12 +233,61 @@ export function InventoryScreen({ navigation }: Props) {
 
   const openUpdateModal = (item: InventoryItem) => {
     setSelectedItemId(item.id);
-    setOperationType('receive');
-    setOperationAmount('');
-    setOperationReason('');
+    setOperationType('adjust');
+    setOperationAmount(String(item.quantity));
     setMoveWarehouseId('');
     setMoveLocationCode('');
     setUpdateModalVisible(true);
+  };
+
+  const handleLongPress = (item: InventoryItem) => {
+    setContextMenuItemId(item.id);
+    setContextMenuVisible(true);
+  };
+
+ const handleDeleteProduct = () => {
+  const item = data.inventory.find(i => i.id === contextMenuItemId);
+  if (!item) return;
+
+  // Close bottom sheet first
+  setContextMenuVisible(false);
+
+  // Wait for animation
+  setTimeout(() => {
+    Alert.alert(
+      'Delete Product',
+      `Are you sure you want to delete "${item.name}"?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteProduct(item, profile);
+              Alert.alert('Success', 'Product deleted successfully.');
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                (error as Error).message || 'Could not delete product.',
+              );
+            }
+          },
+        },
+      ],
+    );
+  }, 250); // wait until modal closes
+};
+
+  const handleEditProduct = () => {
+    const item = data.inventory.find(i => i.id === contextMenuItemId);
+    if (item) {
+      setContextMenuVisible(false);
+      navigation.navigate('NewProduct', { item });
+    }
   };
 
   // Filter option handler - applies filter and closes popup
@@ -247,6 +298,48 @@ export function InventoryScreen({ navigation }: Props) {
 
   // Get selected store name
   const selectedStoreName = data.stores.find(s => s.id === storeId)?.name || 'All Stores';
+
+  // Context Menu Component
+  const ContextMenu = () => (
+    <Modal
+      visible={contextMenuVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setContextMenuVisible(false)}
+      statusBarTranslucent>
+      <View style={styles.modalBackdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setContextMenuVisible(false)}
+        />
+        <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <View style={styles.modalHandle} />
+          <Pressable onPress={handleEditProduct} style={styles.contextMenuItem}>
+            <AppIcon name="edit" size={16} tintColor={colors.primary} />
+            <Text style={styles.contextMenuItemText}>Edit Details</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              const item = data.inventory.find(i => i.id === contextMenuItemId);
+              setContextMenuVisible(false);
+              if (item) {
+                openUpdateModal(item);
+              }
+            }}
+            style={styles.contextMenuItem}>
+            <AppIcon name="box" size={16} tintColor={colors.accent} />
+            <Text style={styles.contextMenuItemText}>Update Stock</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleDeleteProduct}
+            style={[styles.contextMenuItem, styles.contextMenuItemDanger]}>
+            <AppIcon name="trash" size={16} tintColor={colors.danger} />
+            <Text style={[styles.contextMenuItemText, styles.contextMenuItemTextDanger]}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
 
   // Filter Popup Component
   const FilterPopup = () => (
@@ -449,16 +542,13 @@ export function InventoryScreen({ navigation }: Props) {
       subtitle="Search, filter and manage your live inventory."
       title="Products"
       rightAction={
-        selectedItem ? (
-          <Pressable
-            onPress={() => openUpdateModal(selectedItem)}
-            style={styles.updateActionBtn}>
-            <AppIcon name="edit" size={14} tintColor={colors.surface} />
-            <Text style={styles.updateActionBtnText}>Update</Text>
-          </Pressable>
-        ) : undefined
-      }>
-
+  <Pressable
+    onPress={() => navigation.navigate('NewProduct')}
+    style={styles.headerAddBtn}>
+    <AppIcon name="plus" size={20} tintColor={colors.surface} />
+  </Pressable>
+}
+>
       {/* ── Search Card ─────────────────────────────────────────── */}
       <View style={styles.searchCard}>
         {/* Search Row with integrated search icon */}
@@ -574,6 +664,8 @@ export function InventoryScreen({ navigation }: Props) {
             <Pressable
               key={item.id}
               onPress={() => setSelectedItemId(item.id)}
+              onLongPress={() => handleLongPress(item)}
+              delayLongPress={500}
               style={[styles.itemCard, alertLevel !== 'ok' && styles.itemCardAlert, isSelected && styles.itemCardSelected]}>
               <View style={styles.itemHeader}>
                 <View style={styles.itemTitleWrap}>
@@ -617,13 +709,13 @@ export function InventoryScreen({ navigation }: Props) {
         })
       )}
 
-      {profile?.role === 'admin' && (
+      {/* {profile?.role === 'admin' && (
         <Pressable
           onPress={() => navigation.navigate('NewProduct')}
           style={styles.fab}>
           <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
         </Pressable>
-      )}
+      )} */}
 
       {/* Filter Popup - positioned near the filter button */}
       {filterPopupVisible && (
@@ -635,6 +727,9 @@ export function InventoryScreen({ navigation }: Props) {
           <FilterPopup />
         </>
       )}
+
+      {/* Context Menu - for product long-press */}
+      {contextMenuVisible && <ContextMenu />}
 
       {/* Update Stock Modal */}
       <Modal
@@ -648,142 +743,144 @@ export function InventoryScreen({ navigation }: Props) {
             style={StyleSheet.absoluteFill}
             onPress={() => setUpdateModalVisible(false)}
           />
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
-            <View style={styles.modalHandle} />
-            {selectedItem ? (
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled">
-                <View style={styles.updateHeader}>
-                  <View style={styles.updateIconWrap}>
-                    <AppIcon name="edit" size={16} tintColor={colors.accent} />
-                  </View>
-                  <View style={styles.updateHeaderText}>
-                    <Text style={styles.updateTitle}>Update Stock</Text>
-                    <Text style={styles.updateItemName} numberOfLines={1}>
-                      {selectedItem.name}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => setUpdateModalVisible(false)}
-                    hitSlop={8}
-                    style={styles.modalCloseBtn}>
-                    <Text style={styles.modalCloseText}>✕</Text>
-                  </Pressable>
-                </View>
-
-                {profile?.role === 'admin' && (
-                  <Pressable
-                    onPress={() => {
-                      setUpdateModalVisible(false);
-                      navigation.navigate('NewProduct', { item: selectedItem });
-                    }}
-                    style={[styles.editDetailsBtn, styles.editDetailsBtnFull]}>
-                    <Text style={styles.editDetailsBtnText}>Edit Product Details</Text>
-                  </Pressable>
-                )}
-
-                {/* Operation chips */}
-                <Text style={styles.filterGroupLabel}>Operation</Text>
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}>
+            <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+              <View style={styles.modalHandle} />
+              {selectedItem ? (
                 <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
-                  {operations.map(op => (
-                    <Pressable
-                      key={op.value}
-                      onPress={() => setOperationType(op.value)}
-                      style={[styles.chip, operationType === op.value && styles.chipActive]}>
-                      <Text
-                        style={[
-                          styles.chipText,
-                          operationType === op.value && styles.chipTextActive,
-                        ]}>
-                        {op.label}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={styles.modalScrollContent}>
+                  <View style={styles.updateHeader}>
+                    <View style={styles.updateIconWrap}>
+                      <AppIcon name="edit" size={16} tintColor={colors.accent} />
+                    </View>
+                    <View style={styles.updateHeaderText}>
+                      <Text style={styles.updateTitle}>Update Stock</Text>
+                      <Text style={styles.updateItemName} numberOfLines={1}>
+                        {selectedItem.name}
                       </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => setUpdateModalVisible(false)}
+                      hitSlop={8}
+                      style={styles.modalCloseBtn}>
+                      <Text style={styles.modalCloseText}>✕</Text>
                     </Pressable>
-                  ))}
-                </ScrollView>
+                  </View>
 
-                <AppTextInput
-                  keyboardType="number-pad"
-                  label={operationType === 'adjust' ? 'New Quantity' : 'Quantity'}
-                  onChangeText={text => setOperationAmount(text.replace(/[^0-9]/g, ''))}
-                  placeholder={operationType === 'adjust' ? String(selectedItem.quantity) : '0'}
-                  value={operationAmount}
-                />
+                  {profile?.role === 'admin' && (
+                    <Pressable
+                      onPress={() => {
+                        setUpdateModalVisible(false);
+                        navigation.navigate('NewProduct', { item: selectedItem });
+                      }}
+                      style={[styles.editDetailsBtn, styles.editDetailsBtnFull]}>
+                      <Text style={styles.editDetailsBtnText}>Edit Product Details</Text>
+                    </Pressable>
+                  )}
 
-                {operationType === 'move' ? (
-                  <>
-                    <Text style={styles.filterGroupLabel}>To Warehouse</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
-                      {moveWarehouses.map(wh => (
-                        <Pressable
-                          key={wh.id}
-                          onPress={() => setMoveWarehouseId(wh.id)}
+                  {/* Operation chips */}
+                  <Text style={styles.filterGroupLabel}>Operation</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
+                    {operations.map(op => (
+                      <Pressable
+                        key={op.value}
+                        onPress={() => {
+                          setOperationType(op.value);
+                          setOperationAmount(op.value === 'adjust' ? String(selectedItem.quantity) : '');
+                        }}
+                        style={[styles.chip, operationType === op.value && styles.chipActive]}>
+                        <Text
                           style={[
-                            styles.chip,
-                            (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
-                              styles.chipActive,
+                            styles.chipText,
+                            operationType === op.value && styles.chipTextActive,
                           ]}>
-                          <Text
-                            style={[
-                              styles.chipText,
-                              (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
-                                styles.chipTextActive,
-                            ]}>
-                            {wh.name}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                    <Text style={styles.filterGroupLabel}>To Location</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
-                      {moveLocations.map(loc => (
-                        <Pressable
-                          key={loc.code}
-                          onPress={() => setMoveLocationCode(loc.code)}
-                          style={[
-                            styles.chip,
-                            (moveLocationCode || moveLocations[0]?.code) === loc.code &&
-                              styles.chipActive,
-                          ]}>
-                          <Text
-                            style={[
-                              styles.chipText,
-                              (moveLocationCode || moveLocations[0]?.code) === loc.code &&
-                                styles.chipTextActive,
-                            ]}>
-                            {loc.code}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  </>
-                ) : null}
+                          {op.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
 
-                {operationType === 'adjust' || operationType === 'damaged' ? (
                   <AppTextInput
-                    label="Reason / Notes"
-                    onChangeText={setOperationReason}
-                    placeholder="Adjustment reason"
-                    value={operationReason}
+                    keyboardType="number-pad"
+                    label={operationType === 'adjust' ? 'New Quantity' : 'Quantity'}
+                    onChangeText={text => setOperationAmount(text.replace(/[^0-9]/g, ''))}
+                    placeholder={operationType === 'adjust' ? String(selectedItem.quantity) : '0'}
+                    value={operationAmount}
                   />
-                ) : null}
-                <AppButton
-                  disabled={!operationAmount}
-                  onPress={() => submitOperation(selectedItem)}
-                  title="Apply Update"
-                />
-              </ScrollView>
-            ) : null}
-          </View>
+
+                  {operationType === 'move' ? (
+                    <>
+                      <Text style={styles.filterGroupLabel}>To Warehouse</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
+                        {moveWarehouses.map(wh => (
+                          <Pressable
+                            key={wh.id}
+                            onPress={() => setMoveWarehouseId(wh.id)}
+                            style={[
+                              styles.chip,
+                              (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
+                                styles.chipActive,
+                            ]}>
+                            <Text
+                              style={[
+                                styles.chipText,
+                                (moveWarehouseId || moveWarehouses[0]?.id) === wh.id &&
+                                  styles.chipTextActive,
+                              ]}>
+                              {wh.name}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                      <Text style={styles.filterGroupLabel}>To Location</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={[styles.chipRow, { marginBottom: spacing.md }]}>
+                        {moveLocations.map(loc => (
+                          <Pressable
+                            key={loc.code}
+                            onPress={() => setMoveLocationCode(loc.code)}
+                            style={[
+                              styles.chip,
+                              (moveLocationCode || moveLocations[0]?.code) === loc.code &&
+                                styles.chipActive,
+                            ]}>
+                            <Text
+                              style={[
+                                styles.chipText,
+                                (moveLocationCode || moveLocations[0]?.code) === loc.code &&
+                                  styles.chipTextActive,
+                              ]}>
+                              {loc.code}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </>
+                  ) : null}
+
+                  <AppButton
+                    disabled={!operationAmount}
+                    onPress={() => submitOperation(selectedItem)}
+                    title="Apply Update"
+                    style={styles.applyBtn}
+                  />
+                </ScrollView>
+              ) : null}
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </ScreenShell>
@@ -791,6 +888,15 @@ export function InventoryScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: spacing.lg,
+  },
+  applyBtn: {
+    marginTop: spacing.md,
+  },
   // ── Search Card ──────────────────────────────────────────────────────────────
   searchCard: {
     backgroundColor: colors.surface,
@@ -835,6 +941,15 @@ const styles = StyleSheet.create({
   clearSearchBtn: {
     padding: 4,
   },
+  headerAddBtn: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  backgroundColor: colors.primary,
+  alignItems: 'center',
+  justifyContent: 'center',
+  ...shadows.sm,
+},
   clearSearchText: {
     fontSize: 14,
     color: colors.muted,
@@ -1366,5 +1481,29 @@ const styles = StyleSheet.create({
   editDetailsBtnFull: {
     alignSelf: 'flex-start',
     marginBottom: spacing.md,
+  },
+  // Context Menu Styles
+  contextMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  contextMenuItemDanger: {
+    backgroundColor: colors.cardTintRed,
+    borderBottomWidth: 0,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  contextMenuItemText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.sm,
+    color: colors.ink,
+  },
+  contextMenuItemTextDanger: {
+    color: colors.danger,
   },
 });

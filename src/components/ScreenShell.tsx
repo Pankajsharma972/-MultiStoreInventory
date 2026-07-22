@@ -13,34 +13,62 @@ export function ScreenShell({
   onBack,
   children,
   rightAction,
+  scrollable = true,
 }: {
   title: string;
   subtitle?: string;
   onBack?: () => void;
   children: React.ReactNode;
   rightAction?: React.ReactNode;
+  // Set to false when the screen's content already provides its own
+  // scrolling VirtualizedList (e.g. FlatList/SectionList). This avoids the
+  // "VirtualizedLists should never be nested inside plain ScrollViews"
+  // warning that happens when a FlatList is rendered as a direct child of
+  // this component's internal ScrollView.
+  scrollable?: boolean;
 }) {
+  const header = (
+    <View style={styles.headerCard}>
+      <View style={styles.headerRow}>
+        {onBack ? (
+          <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
+            <AppIcon name="arrowLeft" size={20} tintColor={colors.ink} />
+          </Pressable>
+        ) : (
+          <View style={styles.backPlaceholder} />
+        )}
+
+        <Text style={styles.title}>{title}</Text>
+
+        {rightAction ? rightAction : <View style={styles.backPlaceholder} />}
+      </View>
+    </View>
+  );
+
+  if (!scrollable) {
+    // Plain View container: `children` is expected to be (or contain) its
+    // own VirtualizedList-backed scroll container, e.g. a FlatList. We pass
+    // the header through as a normal sibling; screens using this mode should
+    // render the header via FlatList's ListHeaderComponent if they want it
+    // to scroll away with the content, or it will simply stay fixed above
+    // the list here.
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.nonScrollContent}>
+          {header}
+          {children}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
-     <View style={styles.headerCard}>
-  <View style={styles.headerRow}>
-    {onBack ? (
-      <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-        <AppIcon name="arrowLeft" size={20} tintColor={colors.ink} />
-      </Pressable>
-    ) : (
-      <View style={styles.backPlaceholder} />
-    )}
-
-    <Text style={styles.title}>{title}</Text>
-
-    {rightAction ? rightAction : <View style={styles.backPlaceholder} />}
-  </View>
-</View>
+        {header}
         {children}
       </ScrollView>
     </SafeAreaView>
@@ -92,6 +120,11 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xxl + spacing.lg,
   },
+  nonScrollContent: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
   headerCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
@@ -101,10 +134,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     ...shadows.sm,
   },
-headerRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-},
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   backButton: {
     width: 40,
     height: 40,
@@ -118,12 +151,12 @@ headerRow: {
     height: 40,
   },
   title: {
-  flex: 1,
-  color: colors.ink,
-  fontFamily: typography.fontFamily.bold,
-  fontSize: typography.fontSize.lg,
-  textAlign: 'center',
-  marginHorizontal: spacing.md,
+    flex: 1,
+    color: colors.ink,
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.lg,
+    textAlign: 'center',
+    marginHorizontal: spacing.md,
   },
   subtitle: {
     color: colors.muted,

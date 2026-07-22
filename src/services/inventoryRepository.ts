@@ -1,7 +1,7 @@
 import firestore from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { collections, db, firebaseFunctions, firebaseStorage } from './firebase';
-
+import RNFS from 'react-native-fs';
 import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelpers';
 import type {
   ActivityAction,
@@ -19,24 +19,29 @@ import type {
   Warehouse,
 } from '../types/models';
 
-// Upload a local image (from camera/gallery) to Firebase Storage and return its
-// public download URL. Used for design/product photos.
+
 export async function uploadProductPhoto(localUri: string): Promise<string> {
   if (!localUri) {
     throw new Error('No image selected.');
   }
-  // Remove file:// scheme if present; for content URIs, Firebase Storage can handle them directly on Android
-  const cleanedUri = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
-  const extension = cleanedUri.split('.').pop()?.split('?')[0] || 'jpg';
-  const path = `product-photos/${Date.now()}-${Math.round(Math.random() * 1e6)}.${extension}`;
-  const ref = firebaseStorage.ref(path);
+
   try {
-    await ref.putFile(cleanedUri);
-  } catch (e) {
-    console.error('Firebase putFile failed', e);
-    throw e;
+    // Strip file:// for RNFS read
+    const path = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
+    const base64Data = await RNFS.readFile(path, 'base64');
+    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
+
+    // Rough size check — warn if too large for a Firestore document
+    const approxSizeKb = (base64Data.length * 0.75) / 1024;
+    if (approxSizeKb > 700) {
+      throw new Error('Image is too large. Please choose a smaller photo (reduce camera quality).');
+    }
+
+    return dataUrl; // ye seedha photoUrl field mein Firestore document ke andar save ho jayega
+  } catch (e: any) {
+    console.error('Photo encoding failed:', e);
+    throw new Error(e.message || 'Failed to process image.');
   }
-  return ref.getDownloadURL();
 }
 
 
@@ -856,6 +861,46 @@ export async function setUserStoreAssignment(
     storeId,
     user,
   });
+}
+
+export async function deleteProduct(
+  product: InventoryItem,
+  user: UserProfile | null,
+) {
+  try {
+    // Delete the product document
+    await db.collection(collections.inventory).doc(product.id).delete();
+
+    // Log the activity
+    await addActivity({
+      action: 'Product Deleted',
+      detail: `${product.name} deleted from ${product.locationCode}`,
+      storeId: product.storeId,
+      user,
+    });
+  } catch (error) {
+    throw new Error('Could not delete product. Please try again.');
+  }
+}
+
+export async function deleteOrder(
+  order: CustomerOrder,
+  user: UserProfile | null,
+) {
+  try {
+    // Delete the order document
+    await db.collection(collections.orders).doc(order.id).delete();
+
+    // Log the activity
+    await addActivity({
+      action: 'Order Deleted',
+      detail: `Order from ${order.customerName} deleted`,
+      storeId: order.storeId,
+      user,
+    });
+  } catch (error) {
+    throw new Error('Could not delete order. Please try again.');
+  }
 }
 
 export { inventoryMatchKey };
