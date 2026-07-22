@@ -70,7 +70,7 @@ const compressImage = async (uri: string): Promise<string> => {
       'JPEG', // format
       70, // quality (0-100)
       0, // rotation
-      null, // output path (null = auto generate)
+      undefined, // output path (undefined = auto generate)
     );
     return response.uri;
   } catch (error) {

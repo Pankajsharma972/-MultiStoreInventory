@@ -171,10 +171,11 @@ export function sortByBrandThenSize<
 }
 
 const orderStatusLabels: Record<OrderStatus, string> = {
-  ordered: 'Ordered',
+  ordered: 'Order Created',
   billed: 'Billed',
   out_for_delivery: 'Out for delivery',
-  delivered: 'Delivered',
+  partially_delivered: 'Partially delivered',
+  delivered: 'Fully delivered',
   cancelled: 'Cancelled',
 };
 
@@ -182,6 +183,7 @@ export const orderStatusFlow: OrderStatus[] = [
   'ordered',
   'billed',
   'out_for_delivery',
+  'partially_delivered',
   'delivered',
   'cancelled',
 ];
@@ -226,6 +228,7 @@ export function orderStatusTone(
       return 'cancelled';
     case 'billed':
     case 'out_for_delivery':
+    case 'partially_delivered':
       return 'processing';
     default:
       return 'pending';

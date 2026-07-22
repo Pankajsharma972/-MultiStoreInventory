@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'staff';
+export type UserRole = 'admin' | 'staff' | 'accounts' | 'supervisor';
 
 export type StockAlertLevel = 'ok' | 'low' | 'critical' | 'out_of_stock';
 
@@ -13,12 +13,15 @@ export type ActivityAction =
   | 'Stock Added'
   | 'Stock Updated'
   | 'Stock Removed'
+  | 'Stock Returned'
   | 'Stock Transfer'
   | 'Stock Moved'
   | 'Order Created'
   | 'Order Updated'
   | 'Delivery Completed'
   | 'Delivery Updated'
+  | 'Dispatch Approved'
+  | 'Order Restocked'
   | 'Store Created'
   | 'Warehouse Created'
   | 'Location Created'
@@ -97,6 +100,7 @@ export type OrderStatus =
   | 'ordered'
   | 'billed'
   | 'out_for_delivery'
+  | 'partially_delivered'
   | 'delivered'
   | 'cancelled';
 
@@ -107,9 +111,20 @@ export type OrderLineItem = {
   productId: string;
   productName: string;
   quantity: number;
+  deliveredQuantity?: number;
+  pendingQuantity?: number;
+  stockBeforeOrder?: number;
+  stockAfterOrder?: number;
+  stockBeforeReturn?: number;
+  stockReturned?: number;
+  stockAfterReturn?: number;
   brand?: string;
   size?: string;
   photoUrl?: string;
+};
+
+export type DeliveryLineItem = OrderLineItem & {
+  dispatchQuantity?: number;
 };
 
 export type CustomerOrder = {
@@ -125,6 +140,15 @@ export type CustomerOrder = {
   storeId: string;
   status: OrderStatus;
   deliveryStatus: DeliveryStatus;
+  deliveredQuantity?: number;
+  pendingQuantity?: number;
+  stockRestored?: boolean;
+  restockedAt?: unknown;
+  truckPhotoUrl?: string;
+  dispatchedAt?: unknown;
+  dispatchedBy?: string;
+  completedAt?: unknown;
+  completedBy?: string;
   expectedDeliveryDate?: string;
   createdAt?: unknown;
 };
@@ -135,7 +159,14 @@ export type PendingDelivery = {
   customerName: string;
   productName: string;
   quantity: number;
-  items?: OrderLineItem[];
+  deliveredQuantity?: number;
+  pendingQuantity?: number;
+  items?: DeliveryLineItem[];
+  truckPhotoUrl?: string;
+  dispatchedAt?: unknown;
+  dispatchedBy?: string;
+  completedAt?: unknown;
+  completedBy?: string;
   storeId: string;
   status: DeliveryStatus;
   expectedDeliveryDate?: string;

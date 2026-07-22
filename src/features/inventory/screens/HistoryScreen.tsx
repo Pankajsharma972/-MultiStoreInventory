@@ -25,12 +25,15 @@ const actionFilters: Array<{ label: string; value: ActivityAction | typeof ALL }
   { label: 'Stock Added', value: 'Stock Added' },
   { label: 'Stock Updated', value: 'Stock Updated' },
   { label: 'Stock Removed', value: 'Stock Removed' },
+  { label: 'Stock Returned', value: 'Stock Returned' },
   { label: 'Stock Transfer', value: 'Stock Transfer' },
   { label: 'Stock Moved', value: 'Stock Moved' },
   { label: 'Order Created', value: 'Order Created' },
   { label: 'Order Updated', value: 'Order Updated' },
   { label: 'Delivery Completed', value: 'Delivery Completed' },
   { label: 'Delivery Updated', value: 'Delivery Updated' },
+  { label: 'Dispatch Approved', value: 'Dispatch Approved' },
+  { label: 'Order Restocked', value: 'Order Restocked' },
 ];
 
 function actionIcon(action: string): 'box' | 'transfer' | 'shoppingBag' | 'delivery' | 'activity' {
@@ -64,16 +67,16 @@ export function HistoryScreen({ navigation }: Props) {
     });
   }, [actionFilter, data.activity, query, storeFilter]);
 
-  if (profile?.role !== 'admin') {
+  if (!profile || !['admin', 'accounts', 'supervisor'].includes(profile.role)) {
     return (
       <ScreenShell
         onBack={navigation.canGoBack() ? navigation.goBack : undefined}
-        subtitle="This section is available to administrators only."
+        subtitle="This section is available to authorized workflow roles only."
         title="Activity History">
         <EmptyState
           icon="history"
           title="Access restricted"
-          subtitle="Only administrators can view the full activity history."
+          subtitle="Only Admin, Accounts, and Supervisor can view workflow history."
         />
       </ScreenShell>
     );

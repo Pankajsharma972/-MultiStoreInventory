@@ -122,13 +122,13 @@ export function OrdersScreen({ navigation }: Props) {
         // Add product name if it matches search
         if (productName.includes(searchQuery.toLowerCase()) && !productSet.has(productName)) {
           productSet.add(productName);
-          suggestions.push(item.productName);
+          suggestions.push(item.productName || '');
         }
 
         // Add brand if it matches search
         if (brand.includes(searchQuery.toLowerCase()) && !productSet.has(brand)) {
           productSet.add(brand);
-          suggestions.push(item.brand);
+          suggestions.push(item.brand || '');
         }
       });
     });
@@ -170,6 +170,23 @@ export function OrdersScreen({ navigation }: Props) {
 
   // Get selected order for modal
   const selectedOrder = data.orders.find(o => o.id === selectedOrderId);
+  const canApproveAccounts = profile?.role === 'accounts';
+  const canCreateOrders = profile?.role === 'staff';
+
+  const orderStatusOptionsForRole = (order: typeof data.orders[0]) =>
+    statuses
+      .filter(status => status !== 'out_for_delivery')
+      .filter(status => canApproveAccounts || (status !== 'billed' && status !== 'delivered' && status !== 'cancelled'))
+      .filter(status => status !== 'delivered' || Number(order.pendingQuantity || 0) === 0)
+      .map(status => ({ label: orderStatusLabel(status), value: status }));
+
+  const handleOrderStatusChange = async (order: typeof data.orders[0], status: OrderStatus) => {
+    try {
+      await updateOrderStatus(order, status, profile);
+    } catch (error) {
+      Alert.alert('Status not allowed', (error as Error).message || 'Could not update order status.');
+    }
+  };
 
   // Toggle filter popup
   const toggleFilterPopup = useCallback(() => {
@@ -256,8 +273,8 @@ export function OrdersScreen({ navigation }: Props) {
         <View style={styles.statusPickerWrap}>
           <SelectPill
             label="Change Status"
-            onChange={value => updateOrderStatus(order, value as OrderStatus, profile)}
-            options={statuses.map(status => ({ label: orderStatusLabel(status), value: status }))}
+            onChange={value => handleOrderStatusChange(order, value as OrderStatus)}
+            options={orderStatusOptionsForRole(order)}
             value={order.status}
           />
         </View>
@@ -289,7 +306,7 @@ export function OrdersScreen({ navigation }: Props) {
           <Pressable
             style={styles.clearButton}
             onPress={() => setSearchQuery('')}>
-            <AppIcon name="close" size={16} tintColor={colors.muted} />
+            <AppIcon name="trash" size={16} tintColor={colors.muted} />
           </Pressable>
         )}
 
@@ -542,11 +559,13 @@ export function OrdersScreen({ navigation }: Props) {
         </TouchableWithoutFeedback>
       </Modal>
 
-      <Pressable
-        onPress={() => navigation.navigate('BookOrder')}
-        style={styles.fab}>
-        <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
-      </Pressable>
+      {canCreateOrders ? (
+        <Pressable
+          onPress={() => navigation.navigate('BookOrder')}
+          style={styles.fab}>
+          <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
+        </Pressable>
+      ) : null}
     </ScreenShell>
   );
 }

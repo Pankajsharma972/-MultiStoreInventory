@@ -9,6 +9,8 @@ export type AppStackParamList = {
   HomeTab: undefined;
   AdminDashboard: undefined;
   StaffDashboard: undefined;
+  AccountsDashboard: undefined;
+  SupervisorDashboard: undefined;
   Inventory: undefined;
   NewProduct: { item?: any } | undefined;
   Stores: undefined;

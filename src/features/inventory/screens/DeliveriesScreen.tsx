@@ -1,14 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
 import { FilterChips } from '../../../components/FilterChips';
 import { ProductThumbnail } from '../../../components/ProductThumbnail';
+import { PhotoPickerField } from '../../../components/PhotoPickerField';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SelectPill } from '../../../components/SelectPill';
 import { StatusBadge } from '../../../components/StatusBadge';
-import { readableDate, updateDeliveryStatus } from '../../../services/inventoryRepository';
+import { approveDispatch, readableDate, updateDeliveryStatus } from '../../../services/inventoryRepository';
 import { useInventoryData } from '../../../services/useInventoryData';
 import { useAuth } from '../../auth/AuthProvider';
 import {
@@ -36,6 +37,42 @@ export function DeliveriesScreen({ navigation }: Props) {
     'pending_only',
   );
   const [storeFilter, setStoreFilter] = useState('');
+  const [truckPhotos, setTruckPhotos] = useState<Record<string, string>>({});
+  const [dispatchQty, setDispatchQty] = useState<Record<string, Record<string, string>>>({});
+  const canSupervise = profile?.role === 'supervisor';
+  const canApproveAccounts = profile?.role === 'accounts';
+
+  const submitDispatch = async (delivery: typeof data.deliveries[0]) => {
+    try {
+      const quantityMap = dispatchQty[delivery.id] || {};
+      await approveDispatch(
+        delivery,
+        {
+          truckPhotoUrl: truckPhotos[delivery.id] || delivery.truckPhotoUrl || '',
+          items: resolveOrderItems(delivery).map(item => ({
+            ...item,
+            dispatchQuantity: Number(quantityMap[item.productId] || 0),
+          })),
+        },
+        profile,
+      );
+      setDispatchQty(current => ({ ...current, [delivery.id]: {} }));
+      Alert.alert('Dispatch approved', 'Delivery quantities and truck photo have been saved.');
+    } catch (error) {
+      Alert.alert('Dispatch failed', (error as Error).message || 'Could not approve dispatch.');
+    }
+  };
+
+  const handleDeliveryStatusChange = async (
+    delivery: typeof data.deliveries[0],
+    status: DeliveryStatus,
+  ) => {
+    try {
+      await updateDeliveryStatus(delivery, status, profile);
+    } catch (error) {
+      Alert.alert('Status not allowed', (error as Error).message || 'Could not update delivery status.');
+    }
+  };
 
   const filteredDeliveries = useMemo(() => {
     return data.deliveries.filter(delivery => {
@@ -139,14 +176,66 @@ export function DeliveriesScreen({ navigation }: Props) {
 
               <Text style={styles.dateText}>{readableDate(delivery.createdAt)}</Text>
 
+              {delivery.truckPhotoUrl ? (
+                <View style={styles.truckPhotoWrap}>
+                  <Text style={styles.truckPhotoLabel}>Truck Loading Photo</Text>
+                  <Image source={{ uri: delivery.truckPhotoUrl }} style={styles.truckPhoto} />
+                </View>
+              ) : null}
+
+              {canSupervise && (delivery.status === 'billed' || delivery.status === 'partially_delivered') ? (
+                <View style={styles.dispatchBox}>
+                  <PhotoPickerField
+                    label="Truck Loading Photo"
+                    required
+                    value={truckPhotos[delivery.id] || delivery.truckPhotoUrl || ''}
+                    onChange={url => setTruckPhotos(current => ({ ...current, [delivery.id]: url }))}
+                  />
+                  {resolveOrderItems(delivery).map(line => {
+                    const pending = Number(line.pendingQuantity ?? line.quantity ?? 0);
+                    return (
+                      <View key={`dispatch-${line.productId}`} style={styles.dispatchRow}>
+                        <View style={styles.dispatchTextWrap}>
+                          <Text style={styles.dispatchName} numberOfLines={1}>{line.productName}</Text>
+                          <Text style={styles.dispatchHint}>Pending {pending}</Text>
+                        </View>
+                        <TextInput
+                          keyboardType="number-pad"
+                          placeholder="0"
+                          placeholderTextColor={colors.muted}
+                          style={styles.quantityInput}
+                          value={dispatchQty[delivery.id]?.[line.productId] || ''}
+                          onChangeText={text =>
+                            setDispatchQty(current => ({
+                              ...current,
+                              [delivery.id]: {
+                                ...(current[delivery.id] || {}),
+                                [line.productId]: text.replace(/[^0-9]/g, ''),
+                              },
+                            }))
+                          }
+                        />
+                      </View>
+                    );
+                  })}
+                  <Pressable style={styles.dispatchButton} onPress={() => submitDispatch(delivery)}>
+                    <AppIcon name="delivery" size={16} tintColor="#FFFFFF" />
+                    <Text style={styles.dispatchButtonText}>Approve Dispatch</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
               <View style={styles.statusPickerWrap}>
                 <SelectPill
                   label="Update Status"
-                  onChange={value => updateDeliveryStatus(delivery, value as DeliveryStatus, profile)}
-                  options={statuses.map(status => ({
-                    label: orderStatusLabel(status),
-                    value: status,
-                  }))}
+                  onChange={value => handleDeliveryStatusChange(delivery, value as DeliveryStatus)}
+                  options={statuses
+                    .filter(status => status !== 'out_for_delivery')
+                    .filter(status => canApproveAccounts || (status !== 'billed' && status !== 'delivered' && status !== 'cancelled'))
+                    .map(status => ({
+                      label: orderStatusLabel(status),
+                      value: status,
+                    }))}
                   value={delivery.status}
                 />
               </View>
@@ -251,6 +340,80 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: spacing.xs,
     marginBottom: spacing.sm,
+  },
+  dispatchBox: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
+  dispatchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  dispatchTextWrap: {
+    flex: 1,
+  },
+  dispatchName: {
+    color: colors.ink,
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.sm,
+  },
+  dispatchHint: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.xs,
+    marginTop: 2,
+  },
+  quantityInput: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    color: colors.ink,
+    fontFamily: typography.fontFamily.semiBold,
+    minWidth: 72,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    textAlign: 'center',
+  },
+  truckPhotoWrap: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    backgroundColor: colors.background,
+  },
+  truckPhotoLabel: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    padding: spacing.sm,
+  },
+  truckPhoto: {
+    width: '100%',
+    height: 180,
+    resizeMode: 'cover',
+  },
+  dispatchButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+  },
+  dispatchButtonText: {
+    color: '#FFFFFF',
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.sm,
   },
   statusPickerWrap: {
     borderTopWidth: StyleSheet.hairlineWidth,

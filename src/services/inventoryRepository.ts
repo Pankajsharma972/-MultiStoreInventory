@@ -6,6 +6,7 @@ import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelp
 import type {
   ActivityAction,
   CustomerOrder,
+  DeliveryLineItem,
   DeliveryStatus,
   InventoryItem,
   OrderLineItem,
@@ -26,21 +27,35 @@ export async function uploadProductPhoto(localUri: string): Promise<string> {
   }
 
   try {
-    // Strip file:// for RNFS read
+    // Strip file:// prefix if present
     const path = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
-    const base64Data = await RNFS.readFile(path, 'base64');
-    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
 
-    // Rough size check — warn if too large for a Firestore document
-    const approxSizeKb = (base64Data.length * 0.75) / 1024;
-    if (approxSizeKb > 700) {
+    // Check file size before upload
+    let sizeKb = 0;
+    try {
+      const stat = await RNFS.stat(path);
+      sizeKb = Number(stat.size) / 1024;
+    } catch (statErr) {
+      // If stat fails, continue — upload will still be attempted
+      console.warn('Could not stat file, proceeding to upload:', statErr);
+    }
+
+    if (sizeKb > 700) {
       throw new Error('Image is too large. Please choose a smaller photo (reduce camera quality).');
     }
 
-    return dataUrl; // ye seedha photoUrl field mein Firestore document ke andar save ho jayega
+    // Upload to Firebase Storage and return a downloadable URL
+    const ext = path.split('.').pop() || 'jpg';
+    const filename = `images/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const ref = firebaseStorage.ref(filename);
+
+    await ref.putFile(path);
+    const downloadUrl = await ref.getDownloadURL();
+
+    return downloadUrl;
   } catch (e: any) {
-    console.error('Photo encoding failed:', e);
-    throw new Error(e.message || 'Failed to process image.');
+    console.error('Photo upload failed:', e);
+    throw new Error(e.message || 'Failed to upload image.');
   }
 }
 
@@ -509,9 +524,22 @@ export async function createTransfer(
   });
 }
 
-// Statuses whose stock has been deducted from inventory and can still be
-// returned to stock if the order is cancelled.
-const DEDUCTED_STATUSES: OrderStatus[] = ['ordered', 'billed', 'out_for_delivery'];
+// Statuses whose remaining stock can still be returned if the order is
+// cancelled or not delivered within the restock window.
+const RESTOCKABLE_STATUSES: OrderStatus[] = [
+  'ordered',
+  'billed',
+  'out_for_delivery',
+  'partially_delivered',
+];
+
+function isAccountsUser(user: UserProfile | null) {
+  return user?.role === 'accounts';
+}
+
+function isSupervisorUser(user: UserProfile | null) {
+  return user?.role === 'supervisor';
+}
 
 // Create a multi-design customer order. Placing the order deducts every line
 // item from live inventory in a single atomic transaction (stock-after-order),
@@ -570,14 +598,27 @@ export async function createOrder(
       }
     });
 
+    const stockByProduct = new Map<string, { before: number; after: number }>();
     snaps.forEach((snap, index) => {
+      const productId = productIds[index];
+      const inventoryItem = snap.data() as InventoryItem;
+      const required = requiredByProduct.get(productId) || 0;
+      const before = Number(inventoryItem.quantity || 0);
+      stockByProduct.set(productId, { before, after: before - required });
       transaction.update(snap.ref, {
-        quantity: firestore.FieldValue.increment(-(requiredByProduct.get(productIds[index]) || 0)),
+        quantity: firestore.FieldValue.increment(-required),
         updatedAt: firestore.FieldValue.serverTimestamp(),
       });
     });
 
-    const summary = items[0];
+    const ledgerItems = items.map(item => ({
+      ...item,
+      deliveredQuantity: 0,
+      pendingQuantity: Number(item.quantity),
+      stockBeforeOrder: stockByProduct.get(item.productId)?.before ?? 0,
+      stockAfterOrder: stockByProduct.get(item.productId)?.after ?? 0,
+    }));
+    const summary = ledgerItems[0];
     const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity), 0);
 
     transaction.set(orderRef, {
@@ -586,10 +627,13 @@ export async function createOrder(
       productId: summary.productId,
       productName: summary.productName,
       quantity: totalQuantity,
-      items,
+      items: ledgerItems,
       storeId: payload.storeId,
       status: 'ordered' as OrderStatus,
       deliveryStatus: 'ordered' as DeliveryStatus,
+      deliveredQuantity: 0,
+      pendingQuantity: totalQuantity,
+      stockRestored: false,
       expectedDeliveryDate: payload.expectedDeliveryDate?.trim() || '',
       createdAt: firestore.FieldValue.serverTimestamp(),
       updatedAt: firestore.FieldValue.serverTimestamp(),
@@ -600,7 +644,9 @@ export async function createOrder(
       customerName,
       productName: summary.productName,
       quantity: totalQuantity,
-      items,
+      deliveredQuantity: 0,
+      pendingQuantity: totalQuantity,
+      items: ledgerItems,
       storeId: payload.storeId,
       status: 'ordered' as DeliveryStatus,
       expectedDeliveryDate: payload.expectedDeliveryDate?.trim() || '',
@@ -639,8 +685,23 @@ function orderLineItemsOf(order: {
 // Move an order (and its mirrored delivery) to a new lifecycle status. When an
 // order that still holds deducted stock is cancelled, the units are returned to
 // inventory.
-async function transitionOrder(orderId: string, nextStatus: OrderStatus) {
-  const restored = await db.runTransaction(async transaction => {
+async function transitionOrder(
+  orderId: string,
+  nextStatus: OrderStatus,
+  user?: UserProfile | null,
+): Promise<{
+  restored: boolean;
+  movements: Array<{
+    productId: string;
+    productName: string;
+    returned: number;
+    before: number;
+    after: number;
+    storeId: string;
+    customerName: string;
+  }>;
+}> {
+  const result = await db.runTransaction(async transaction => {
     const orderRef = db.collection(collections.orders).doc(orderId);
     const orderSnap = await transaction.get(orderRef);
     const order = orderSnap.data() as CustomerOrder | undefined;
@@ -650,32 +711,92 @@ async function transitionOrder(orderId: string, nextStatus: OrderStatus) {
 
     const previousStatus = order.status;
     const shouldRestore =
-      nextStatus === 'cancelled' && DEDUCTED_STATUSES.includes(previousStatus);
+      nextStatus === 'cancelled' &&
+      !order.stockRestored &&
+      RESTOCKABLE_STATUSES.includes(previousStatus);
 
+    const items = orderLineItemsOf(order);
+    const restoreByProduct = new Map<string, number>();
     if (shouldRestore) {
-      const items = orderLineItemsOf(order);
-      const restoreByProduct = new Map<string, number>();
       items.forEach(item => {
-        restoreByProduct.set(
-          item.productId,
-          (restoreByProduct.get(item.productId) || 0) + Number(item.quantity),
-        );
+        const pending = Number(item.pendingQuantity ?? item.quantity ?? 0);
+        if (pending > 0) {
+          restoreByProduct.set(
+            item.productId,
+            (restoreByProduct.get(item.productId) || 0) + pending,
+          );
+        }
       });
-      restoreByProduct.forEach((qty, productId) => {
-        transaction.update(db.collection(collections.inventory).doc(productId), {
-          quantity: firestore.FieldValue.increment(qty),
+    }
+
+    const restoredProducts = new Map<string, { before: number; returned: number; after: number }>();
+    if (shouldRestore) {
+      const productIds = Array.from(restoreByProduct.keys());
+      const inventorySnaps = await Promise.all(
+        productIds.map(productId =>
+          transaction.get(db.collection(collections.inventory).doc(productId)),
+        ),
+      );
+      inventorySnaps.forEach((snap, index) => {
+        const productId = productIds[index];
+        const returned = restoreByProduct.get(productId) || 0;
+        const inventory = snap.data() as InventoryItem | undefined;
+        const before = Number(inventory?.quantity || 0);
+        const after = before + returned;
+        restoredProducts.set(productId, { before, returned, after });
+        transaction.update(snap.ref, {
+          quantity: after,
           updatedAt: firestore.FieldValue.serverTimestamp(),
         });
       });
     }
 
+    const nextItems = items.map(item => {
+      const restoredProduct = restoredProducts.get(item.productId);
+      return {
+        ...item,
+        ...(restoredProduct
+          ? {
+              stockBeforeReturn: restoredProduct.before,
+              stockReturned: restoredProduct.returned,
+              stockAfterReturn: restoredProduct.after,
+            }
+          : {}),
+        ...(shouldRestore ? { pendingQuantity: 0 } : {}),
+      };
+    });
+
     transaction.update(orderRef, {
       status: nextStatus,
       deliveryStatus: nextStatus,
+      ...(shouldRestore
+        ? {
+            stockRestored: true,
+            restockedAt: firestore.FieldValue.serverTimestamp(),
+            pendingQuantity: 0,
+            cancelledBy: user?.name || user?.email || 'Accounts',
+            cancelledAt: firestore.FieldValue.serverTimestamp(),
+            cancellationReason: 'Order cancelled',
+            items: nextItems,
+          }
+        : {}),
       updatedAt: firestore.FieldValue.serverTimestamp(),
     });
 
-    return shouldRestore;
+    return {
+      restored: shouldRestore,
+      movements: nextItems
+        .filter(item => Number(item.stockReturned || 0) > 0)
+        .map(item => ({
+          productId: item.productId,
+          productName: item.productName,
+          returned: Number(item.stockReturned || 0),
+          before: Number(item.stockBeforeReturn || 0),
+          after: Number(item.stockAfterReturn || 0),
+          storeId: order.storeId,
+          customerName: order.customerName,
+        })),
+    };
   });
 
   // Keep mirrored delivery docs in sync (queries aren't allowed in transactions).
@@ -688,13 +809,28 @@ async function transitionOrder(orderId: string, nextStatus: OrderStatus) {
     deliveriesSnap.docs.forEach(doc => {
       batch.update(doc.ref, {
         status: nextStatus,
+        ...(nextStatus === 'delivered'
+          ? {
+              completedAt: firestore.FieldValue.serverTimestamp(),
+              completedBy: 'Accounts',
+            }
+          : {}),
+        ...(result.restored
+          ? {
+              pendingQuantity: 0,
+              items: orderLineItemsOf({ ...(doc.data() as PendingDelivery), productId: '', productName: '', quantity: 0 }).map(item => ({
+                ...item,
+                pendingQuantity: 0,
+              })),
+            }
+          : {}),
         updatedAt: firestore.FieldValue.serverTimestamp(),
       });
     });
     await batch.commit();
   }
 
-  return restored;
+  return result;
 }
 
 export async function updateOrderStatus(
@@ -705,15 +841,37 @@ export async function updateOrderStatus(
   if (status === order.status) {
     return;
   }
-  const restored = await transitionOrder(order.id, status);
+  if (
+    (status === 'billed' || status === 'delivered' || status === 'cancelled') &&
+    !isAccountsUser(user)
+  ) {
+    throw new Error('Only accounts can approve billing, final delivery, or cancellation.');
+  }
+  if (status === 'out_for_delivery') {
+    throw new Error('Use dispatch approval with a truck loading photo before marking out for delivery.');
+  }
+  if (status === 'delivered' && Number(order.pendingQuantity || 0) > 0) {
+    throw new Error('Remaining items are still pending. Complete all dispatches before final delivery approval.');
+  }
+  const result = await transitionOrder(order.id, status, user);
   await addActivity({
     action: 'Order Updated',
     detail: `${order.customerName} order → ${status.replace(/_/g, ' ')}${
-      restored ? ' (stock returned)' : ''
+      result.restored ? ' (stock returned)' : ''
     }`,
     storeId: order.storeId,
     user,
   });
+  await Promise.all(
+    result.movements.map(movement =>
+      addActivity({
+        action: 'Stock Returned',
+        detail: `${movement.productName}: returned ${movement.returned} units on cancellation (${movement.before} -> ${movement.after})`,
+        storeId: movement.storeId,
+        user,
+      }),
+    ),
+  );
 }
 
 export async function updateDeliveryStatus(
@@ -724,10 +882,30 @@ export async function updateDeliveryStatus(
   if (status === delivery.status) {
     return;
   }
+  if (status === 'out_for_delivery') {
+    throw new Error('Use dispatch approval with a truck loading photo.');
+  }
+  if ((status === 'billed' || status === 'delivered' || status === 'cancelled') && !isAccountsUser(user)) {
+    throw new Error('Only accounts can approve billing, final delivery, or cancellation.');
+  }
+  if (status === 'delivered' && Number(delivery.pendingQuantity || 0) > 0) {
+    throw new Error('Remaining items are still pending. Complete all dispatches before final delivery approval.');
+  }
 
   let restored = false;
   if (delivery.orderId) {
-    restored = await transitionOrder(delivery.orderId, status);
+    const result = await transitionOrder(delivery.orderId, status, user);
+    restored = result.restored;
+    await Promise.all(
+      result.movements.map(movement =>
+        addActivity({
+          action: 'Stock Returned',
+          detail: `${movement.productName}: returned ${movement.returned} units on cancellation (${movement.before} -> ${movement.after})`,
+          storeId: movement.storeId,
+          user,
+        }),
+      ),
+    );
   } else {
     await db.collection(collections.deliveries).doc(delivery.id).update({
       status,
@@ -740,6 +918,119 @@ export async function updateDeliveryStatus(
     detail: `${delivery.customerName} delivery → ${status.replace(/_/g, ' ')}${
       restored ? ' (stock returned)' : ''
     }`,
+    storeId: delivery.storeId,
+    user,
+  });
+}
+
+export async function approveDispatch(
+  delivery: PendingDelivery,
+  payload: { truckPhotoUrl: string; items: DeliveryLineItem[] },
+  user: UserProfile | null,
+) {
+  if (!isSupervisorUser(user)) {
+    throw new Error('Only supervisor can approve dispatch.');
+  }
+  if (delivery.status !== 'billed' && delivery.status !== 'partially_delivered') {
+    throw new Error('Order must be billed before dispatch.');
+  }
+  if (!payload.truckPhotoUrl) {
+    throw new Error('Truck loading photo is required before dispatch.');
+  }
+
+  const dispatchItems = payload.items
+    .map(item => ({
+      ...item,
+      dispatchQuantity: Math.max(0, Number(item.dispatchQuantity || 0)),
+    }))
+    .filter(item => Number(item.dispatchQuantity || 0) > 0);
+
+  if (dispatchItems.length === 0) {
+    throw new Error('Enter at least one quantity for dispatch.');
+  }
+
+  dispatchItems.forEach(item => {
+    const pending = Number(item.pendingQuantity ?? item.quantity ?? 0);
+    if (Number(item.dispatchQuantity || 0) > pending) {
+      throw new Error(`${item.productName} has only ${pending} units pending.`);
+    }
+  });
+
+  if (!delivery.orderId) {
+    throw new Error('Delivery is not linked to an order.');
+  }
+
+  await db.runTransaction(async transaction => {
+    const orderRef = db.collection(collections.orders).doc(delivery.orderId);
+    const orderSnap = await transaction.get(orderRef);
+    const order = orderSnap.data() as CustomerOrder | undefined;
+    if (!order) {
+      throw new Error('Order not found.');
+    }
+
+    const dispatchByProduct = new Map(
+      dispatchItems.map(item => [item.productId, Number(item.dispatchQuantity || 0)]),
+    );
+    const nextItems = orderLineItemsOf(order).map(item => {
+      const shippedNow = dispatchByProduct.get(item.productId) || 0;
+      const deliveredQuantity = Number(item.deliveredQuantity || 0) + shippedNow;
+      const orderedQuantity = Number(item.quantity || 0);
+      return {
+        ...item,
+        deliveredQuantity,
+        pendingQuantity: Math.max(0, orderedQuantity - deliveredQuantity),
+      };
+    });
+    const deliveredQuantity = nextItems.reduce(
+      (sum, item) => sum + Number(item.deliveredQuantity || 0),
+      0,
+    );
+    const pendingQuantity = nextItems.reduce(
+      (sum, item) => sum + Number(item.pendingQuantity || 0),
+      0,
+    );
+    const nextStatus: OrderStatus = pendingQuantity > 0 ? 'partially_delivered' : 'out_for_delivery';
+
+    transaction.update(orderRef, {
+      status: nextStatus,
+      deliveryStatus: nextStatus,
+      deliveredQuantity,
+      pendingQuantity,
+      items: nextItems,
+      truckPhotoUrl: payload.truckPhotoUrl,
+      dispatchedAt: firestore.FieldValue.serverTimestamp(),
+      dispatchedBy: user?.name || user?.email || '',
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  const orderSnap = await db.collection(collections.orders).doc(delivery.orderId).get();
+  const updatedOrder = orderSnap.data() as CustomerOrder | undefined;
+  const deliveriesSnap = await db
+    .collection(collections.deliveries)
+    .where('orderId', '==', delivery.orderId)
+    .get();
+
+  if (updatedOrder && !deliveriesSnap.empty) {
+    const batch = db.batch();
+    deliveriesSnap.docs.forEach(doc => {
+      batch.update(doc.ref, {
+        status: updatedOrder.status,
+        deliveredQuantity: updatedOrder.deliveredQuantity || 0,
+        pendingQuantity: updatedOrder.pendingQuantity || 0,
+        items: updatedOrder.items || [],
+        truckPhotoUrl: payload.truckPhotoUrl,
+        dispatchedAt: firestore.FieldValue.serverTimestamp(),
+        dispatchedBy: user?.name || user?.email || '',
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+
+  await addActivity({
+    action: 'Dispatch Approved',
+    detail: `${delivery.customerName} dispatch approved with truck loading photo`,
     storeId: delivery.storeId,
     user,
   });
@@ -825,7 +1116,6 @@ export async function updateUserDetails(
 }
 
 // Assign or unassign a single store to a staff user. Enforces that a store can
-// only belong to one staff user at a time.
 export async function setUserStoreAssignment(
   targetUser: UserProfile,
   storeId: string,
@@ -835,16 +1125,20 @@ export async function setUserStoreAssignment(
 ) {
   const assigned = new Set(targetUser.assignedStoreIds || []);
 
-  if (assign) {
-    const owner = allUsers.find(
-      candidate =>
-        candidate.uid !== targetUser.uid &&
-        candidate.role === 'staff' &&
-        (candidate.assignedStoreIds || []).includes(storeId),
-    );
-    if (owner) {
-      throw new Error(`Already assigned to: ${owner.name}`);
-    }
+  // ✅ Staff, accounts, supervisor sabko allow - MULTIPLE USERS ALLOWED
+  if (assign && (targetUser.role === 'staff' || targetUser.role === 'accounts' || targetUser.role === 'supervisor')) {
+    // 🚫 COMMENT OUT OR REMOVE THIS CHECK - Multiple users ko allow karo
+    // const owner = allUsers.find(
+    //   candidate =>
+    //     candidate.uid !== targetUser.uid &&
+    //     (candidate.role === 'staff' || candidate.role === 'accounts' || candidate.role === 'supervisor') &&
+    //     (candidate.assignedStoreIds || []).includes(storeId),
+    // );
+    // if (owner) {
+    //   throw new Error(`Already assigned to: ${owner.name}`);
+    // }
+    
+    // ✅ Directly assign karo, check mat karo
     assigned.add(storeId);
   } else {
     assigned.delete(storeId);

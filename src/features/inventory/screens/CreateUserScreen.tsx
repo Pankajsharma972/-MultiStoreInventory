@@ -36,6 +36,7 @@ export function CreateUserScreen({ navigation, route }: Props) {
   const [assignedStoreIds, setAssignedStoreIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const needsStoreAccess = role !== 'admin';
 
   // Map of storeId -> staff user who already owns it (for one-store-one-staff rule).
   const storeOwners = useMemo(() => {
@@ -53,7 +54,7 @@ export function CreateUserScreen({ navigation, route }: Props) {
     setFormError('');
     const owner = storeOwners.get(storeId);
     const alreadySelected = assignedStoreIds.includes(storeId);
-    if (!alreadySelected && owner) {
+    if (role === 'staff' && !alreadySelected && owner) {
       setFormError(`Already assigned to: ${owner.name}`);
       return;
     }
@@ -95,7 +96,7 @@ export function CreateUserScreen({ navigation, route }: Props) {
       subtitle={
         isEditing
           ? 'Update the name and role for this team member.'
-          : 'Add a new admin or store staff member.'
+          : 'Add a new admin, accounts, supervisor, or store staff member.'
       }
       title={isEditing ? 'Edit User' : 'Create User'}>
       <View style={styles.card}>
@@ -109,7 +110,7 @@ export function CreateUserScreen({ navigation, route }: Props) {
         <AppTextInput
           label="Full Name"
           onChangeText={setName}
-          placeholder="Staff or admin name"
+          placeholder="Team member name"
           value={name}
         />
 
@@ -137,7 +138,7 @@ export function CreateUserScreen({ navigation, route }: Props) {
 
         <Text style={styles.groupLabel}>Role</Text>
         <View style={styles.chipRow}>
-          {(['staff', 'admin'] as UserRole[]).map(r => (
+          {(['staff', 'supervisor', 'accounts', 'admin'] as UserRole[]).map(r => (
             <Pressable
               key={r}
               onPress={() => setRole(r)}
@@ -149,14 +150,14 @@ export function CreateUserScreen({ navigation, route }: Props) {
           ))}
         </View>
 
-        {!isEditing && role === 'staff' && data.stores.length > 0 && (
+        {!isEditing && needsStoreAccess && data.stores.length > 0 && (
           <View style={styles.storeSection}>
             <Text style={styles.groupLabel}>Assign Stores</Text>
             <View style={styles.chipRow}>
               {data.stores.map(store => {
                 const owner = storeOwners.get(store.id);
                 const selected = assignedStoreIds.includes(store.id);
-                const takenByOther = Boolean(owner) && !selected;
+                const takenByOther = role === 'staff' && Boolean(owner) && !selected;
                 return (
                   <Pressable
                     key={store.id}
@@ -181,14 +182,14 @@ export function CreateUserScreen({ navigation, route }: Props) {
               })}
             </View>
             <Text style={styles.hint}>
-              Stores already assigned to another staff member are unavailable.
+              Staff stores stay one-to-one. Accounts and Supervisor can be assigned to every store they manage.
             </Text>
           </View>
         )}
 
-        {isEditing && role === 'staff' ? (
+        {isEditing && needsStoreAccess ? (
           <Text style={styles.hint}>
-            Use “Assign Store” on the User Access screen to change store access.
+            Use "Assign Store" on the User Access screen to change store access.
           </Text>
         ) : null}
 

@@ -47,21 +47,23 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
   );
 
   // storeId -> staff user currently holding it (one store, one staff).
-  const storeOwners = useMemo(() => {
-    const map = new Map<string, UserProfile>();
-    data.users.forEach(u => {
-      if (u.role !== 'staff') return;
-      (u.assignedStoreIds || []).forEach(id => {
-        if (!map.has(id)) map.set(id, u);
-      });
+const storeOwners = useMemo(() => {
+  const map = new Map<string, UserProfile>();
+  data.users.forEach(u => {
+    // ✅ Accounts aur supervisor ko bhi include karo
+    if (u.role !== 'staff' && u.role !== 'accounts' && u.role !== 'supervisor') return;
+    (u.assignedStoreIds || []).forEach(id => {
+      if (!map.has(id)) map.set(id, u);
     });
-    return map;
-  }, [data.users]);
+  });
+  return map;
+}, [data.users]);
 
   const toggleStore = async (targetUser: UserProfile, storeId: string) => {
     const assign = !(targetUser.assignedStoreIds || []).includes(storeId);
     try {
       await setUserStoreAssignment(targetUser, storeId, assign, data.users, profile);
+      setSheetUser(null);
     } catch (error) {
       Alert.alert(
         'Store unavailable',
@@ -160,7 +162,7 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
                 </View>
               </View>
 
-              {user.role === 'staff' && (
+              {user.role !== 'admin' && (
                 <View style={styles.storesRow}>
                   <AppIcon name="store" size={12} tintColor={colors.muted} />
                   <Text style={styles.storesText}>
@@ -200,18 +202,18 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
             onPress: () =>
               sheetUser && navigation.navigate('CreateUser', { userId: sheetUser.uid }),
           },
-          ...(sheetUser?.role === 'staff'
-            ? [
-                {
-                  id: 'assign',
-                  label: 'Assign Store',
-                  icon: 'store' as const,
-                  tint: '#7C3AED',
-                  bg: colors.cardTintPurple,
-                  onPress: () => sheetUser && openAssignModal(sheetUser),
-                },
-              ]
-            : []),
+         ...(sheetUser && sheetUser.role !== 'admin'
+  ? [
+      {
+        id: 'assign',
+        label: 'Assign Store',
+        icon: 'store' as const,
+        tint: '#7C3AED',
+        bg: colors.cardTintPurple,
+        onPress: () => sheetUser && openAssignModal(sheetUser),
+      },
+    ]
+  : []),
           {
             id: 'delete',
             label: 'Delete User',
@@ -221,67 +223,68 @@ export function UsersScreen({ navigation }: UsersScreenProps) {
           },
         ]}
       />
+{/* Assign store modal */}
+<Modal
+  visible={assignModalVisible}
+  transparent
+  animationType="slide"
+  onRequestClose={() => setAssignModalVisible(false)}
+  statusBarTranslucent>
+  <View style={styles.modalBackdrop}>
+    <View style={[styles.assignModal, { paddingBottom: insets.bottom + spacing.lg }]}>
+      <View style={styles.assignModalHandle} />
+      <Text style={styles.assignTitle}>Assign Stores</Text>
+      {assignTarget ? <Text style={styles.assignSub}>{assignTarget.name}</Text> : null}
 
-      {/* Assign store modal */}
-      <Modal
-        visible={assignModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAssignModalVisible(false)}
-        statusBarTranslucent>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.assignModal, { paddingBottom: insets.bottom + spacing.lg }]}>
-            <View style={styles.assignModalHandle} />
-            <Text style={styles.assignTitle}>Assign Stores</Text>
-            {assignTarget ? <Text style={styles.assignSub}>{assignTarget.name}</Text> : null}
+      <ScrollView style={styles.assignScroll} showsVerticalScrollIndicator={false}>
+        {data.stores.map(store => {
+          const assigned = (assignTarget?.assignedStoreIds || []).includes(store.id);
+          // ✅ Show all users assigned to this store
+          const assignedUsers = data.users.filter(u => 
+            (u.assignedStoreIds || []).includes(store.id)
+          );
+          
+          return (
+            <Pressable
+              key={store.id}
+              // ✅ No disabled prop - multiple users allowed
+              onPress={() => assignTarget && toggleStore(assignTarget, store.id)}
+              style={[
+                styles.assignStoreRow,
+                assigned && styles.assignStoreRowActive,
+              ]}>
+              <View style={[styles.assignStoreIcon, assigned && styles.assignStoreIconActive]}>
+                <AppIcon
+                  name="store"
+                  size={16}
+                  tintColor={assigned ? colors.surface : colors.primary}
+                />
+              </View>
+              <View style={styles.assignStoreTextWrap}>
+                <Text
+                  style={[styles.assignStoreName, assigned && styles.assignStoreNameActive]}>
+                  {store.name}
+                </Text>
+                <Text style={styles.assignStoreAssignedTo}>
+                  👥 {assignedUsers.length > 0 
+                    ? assignedUsers.map(u => u.name).join(', ') 
+                    : 'No one assigned'}
+                </Text>
+              </View>
+              {assigned && <AppIcon name="check" size={16} tintColor={colors.primary} />}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
-            <ScrollView style={styles.assignScroll} showsVerticalScrollIndicator={false}>
-              {data.stores.map(store => {
-                const assigned = (assignTarget?.assignedStoreIds || []).includes(store.id);
-                const owner = storeOwners.get(store.id);
-                const takenByOther = Boolean(owner) && owner?.uid !== assignTarget?.uid;
-                return (
-                  <Pressable
-                    key={store.id}
-                    disabled={takenByOther}
-                    onPress={() => assignTarget && toggleStore(assignTarget, store.id)}
-                    style={[
-                      styles.assignStoreRow,
-                      assigned && styles.assignStoreRowActive,
-                      takenByOther && styles.assignStoreRowDisabled,
-                    ]}>
-                    <View style={[styles.assignStoreIcon, assigned && styles.assignStoreIconActive]}>
-                      <AppIcon
-                        name="store"
-                        size={16}
-                        tintColor={assigned ? colors.surface : colors.primary}
-                      />
-                    </View>
-                    <View style={styles.assignStoreTextWrap}>
-                      <Text
-                        style={[styles.assignStoreName, assigned && styles.assignStoreNameActive]}>
-                        {store.name}
-                      </Text>
-                      {takenByOther ? (
-                        <Text style={styles.assignStoreTaken}>
-                          Already assigned to: {owner?.name}
-                        </Text>
-                      ) : null}
-                    </View>
-                    {assigned && <AppIcon name="check" size={16} tintColor={colors.primary} />}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            <AppButton
-              onPress={() => setAssignModalVisible(false)}
-              title="Done"
-              style={styles.assignDoneBtn}
-            />
-          </View>
-        </View>
-      </Modal>
+      <AppButton
+        onPress={() => setAssignModalVisible(false)}
+        title="Done"
+        style={styles.assignDoneBtn}
+      />
+    </View>
+  </View>
+</Modal>
     </>
   );
 }
@@ -331,6 +334,12 @@ const styles = StyleSheet.create({
   userInfo: {
     flex: 1,
   },
+  assignStoreAssignedTo: {
+  fontFamily: typography.fontFamily.regular,
+  fontSize: 11,
+  color: colors.muted,
+  marginTop: 2,
+},
   userName: {
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.md,

@@ -22,6 +22,8 @@ export function OperationsScreen({ navigation }: Props) {
   const { width } = useWindowDimensions();
 
   const isAdmin = profile?.role === 'admin';
+  const isAccounts = profile?.role === 'accounts';
+  const isSupervisor = profile?.role === 'supervisor';
 
   type Module = {
     title: string;
@@ -143,7 +145,75 @@ export function OperationsScreen({ navigation }: Props) {
     },
   ];
 
-  const modules = isAdmin ? adminModules : staffModules;
+  const accountsModules: Module[] = [
+    {
+      title: 'Orders Approval',
+      route: 'Orders',
+      subtitle: 'Approve Order Created to Billed and final delivery completion.',
+      icon: 'shoppingBag',
+      iconBg: colors.cardTintBlue,
+      iconTint: colors.accent,
+    },
+    {
+      title: 'Delivery Completion',
+      route: 'Deliveries',
+      subtitle: 'Approve fully dispatched deliveries and cancellations.',
+      icon: 'delivery',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primary,
+    },
+    {
+      title: 'Activity History',
+      route: 'History',
+      subtitle: 'Review billing, delivery, and stock-return activity.',
+      icon: 'history',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primaryDark,
+    },
+    {
+      title: 'Profile',
+      route: 'Profile',
+      subtitle: 'Account details and sign out.',
+      icon: 'user',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primary,
+    },
+  ];
+
+  const supervisorModules: Module[] = [
+    {
+      title: 'Dispatch Management',
+      route: 'Deliveries',
+      subtitle: 'Upload truck loading photos and dispatch partial quantities.',
+      icon: 'delivery',
+      iconBg: colors.cardTintBlue,
+      iconTint: colors.accent,
+    },
+    {
+      title: 'Activity History',
+      route: 'History',
+      subtitle: 'Recent dispatch and stock movement activity.',
+      icon: 'history',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primaryDark,
+    },
+    {
+      title: 'Profile',
+      route: 'Profile',
+      subtitle: 'Account details and sign out.',
+      icon: 'user',
+      iconBg: colors.cardTintGreen,
+      iconTint: colors.primary,
+    },
+  ];
+
+  const modules = isAdmin
+    ? adminModules
+    : isAccounts
+      ? accountsModules
+      : isSupervisor
+        ? supervisorModules
+        : staffModules;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>

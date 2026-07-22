@@ -17,6 +17,8 @@ import { SignInScreen } from '../features/auth/screens/SignInScreen';
 import { SignUpScreen } from '../features/auth/screens/SignUpScreen';
 import { AdminDashboardScreen } from '../features/dashboard/screens/AdminDashboardScreen';
 import { StaffDashboardScreen } from '../features/dashboard/screens/StaffDashboardScreen';
+import { AccountsDashboardScreen } from '../features/dashboard/screens/AccountsDashboardScreen';
+import { SupervisorDashboardScreen } from '../features/dashboard/screens/SupervisorDashboardScreen';
 import { DeliveriesScreen } from '../features/inventory/screens/DeliveriesScreen';
 import { HistoryScreen } from '../features/inventory/screens/HistoryScreen';
 import { LowStockAlertsScreen } from '../features/inventory/screens/LowStockAlertsScreen';
@@ -36,6 +38,7 @@ import { ReportsScreen } from '../features/inventory/screens/ReportsScreen';
 import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
 import { colors } from '../theme/colors';
 import type { AppStackParamList, AuthStackParamList } from './types';
+import type { UserRole } from '../types/models';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -70,7 +73,35 @@ function StaffHomeStack() {
   );
 }
 
-function MainTabs({ isAdmin }: { isAdmin: boolean }) {
+function AccountsHomeStack() {
+  return (
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+      <HomeStack.Screen name="AccountsDashboard" component={AccountsDashboardScreen} />
+    </HomeStack.Navigator>
+  );
+}
+
+function SupervisorHomeStack() {
+  return (
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+      <HomeStack.Screen name="SupervisorDashboard" component={SupervisorDashboardScreen} />
+    </HomeStack.Navigator>
+  );
+}
+
+function homeComponentForRole(role?: UserRole) {
+  if (role === 'admin') return AdminHomeStack;
+  if (role === 'accounts') return AccountsHomeStack;
+  if (role === 'supervisor') return SupervisorHomeStack;
+  return StaffHomeStack;
+}
+
+function MainTabs({ role }: { role?: UserRole }) {
+  const HomeComponent = homeComponentForRole(role);
+  const showInventory = role === 'admin' || role === 'staff';
+  const showOrders = role === 'admin' || role === 'staff' || role === 'accounts';
+  const showAlerts = role === 'admin' || role === 'staff';
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -116,13 +147,25 @@ function MainTabs({ isAdmin }: { isAdmin: boolean }) {
         },
       })}
     >
-      <Tab.Screen name="HomeTab" component={isAdmin ? AdminHomeStack : StaffHomeStack} options={{ title: 'Home' }} />
-      <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: 'Products' }} />
-      <Tab.Screen name="Orders" component={OrdersScreen} options={{ title: 'Orders' }} />
-      <Tab.Screen name="LowStock" component={LowStockAlertsScreen} options={{ title: 'Alerts' }} />
+      <Tab.Screen name="HomeTab" component={HomeComponent} options={{ title: 'Home' }} />
+      {showInventory ? <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: 'Products' }} /> : null}
+      {showOrders ? <Tab.Screen name="Orders" component={OrdersScreen} options={{ title: 'Orders' }} /> : null}
+      {showAlerts ? <Tab.Screen name="LowStock" component={LowStockAlertsScreen} options={{ title: 'Alerts' }} /> : null}
       <Tab.Screen name="Operations" component={OperationsScreen} options={{ title: 'More' }} />
     </Tab.Navigator>
   );
+}
+
+function canAccessScreen(role: UserRole | undefined, route: keyof AppStackParamList) {
+  if (role === 'admin') return true;
+  if (route === 'MainTabs' || route === 'Profile' || route === 'History') return true;
+  if (role === 'accounts') {
+    return route === 'Orders' || route === 'Deliveries' || route === 'Reports';
+  }
+  if (role === 'supervisor') {
+    return route === 'Deliveries';
+  }
+  return route === 'NewProduct' || route === 'BookOrder' || route === 'Deliveries';
 }
 
 export function RootNavigator() {
@@ -136,28 +179,26 @@ export function RootNavigator() {
     );
   }
 
-  const isAdmin = profile?.role === 'admin';
-
   return (
     <NavigationContainer theme={theme}>
       {user ? (
         <AppStack.Navigator screenOptions={{ headerShown: false }}>
           <AppStack.Screen name="MainTabs">
-            {props => <MainTabs {...props} isAdmin={isAdmin} />}
+            {props => <MainTabs {...props} role={profile?.role} />}
           </AppStack.Screen>
-          <AppStack.Screen name="NewProduct" component={NewProductScreen} />
-          <AppStack.Screen name="BookOrder" component={BookOrderScreen} />
-          <AppStack.Screen name="Stores" component={StoresScreen} />
-          <AppStack.Screen name="CreateStore" component={CreateStoreScreen} />
-          <AppStack.Screen name="CreateWarehouse" component={CreateWarehouseScreen} />
-          <AppStack.Screen name="CreateLocation" component={CreateLocationScreen} />
-          <AppStack.Screen name="Transfer" component={TransferScreen} />
-          <AppStack.Screen name="Deliveries" component={DeliveriesScreen} />
-          <AppStack.Screen name="History" component={HistoryScreen} />
-          <AppStack.Screen name="Users" component={UsersScreen} />
-          <AppStack.Screen name="CreateUser" component={CreateUserScreen} />
-          <AppStack.Screen name="Reports" component={ReportsScreen} />
-          <AppStack.Screen name="Profile" component={ProfileScreen} />
+          {canAccessScreen(profile?.role, 'NewProduct') ? <AppStack.Screen name="NewProduct" component={NewProductScreen} /> : null}
+          {canAccessScreen(profile?.role, 'BookOrder') ? <AppStack.Screen name="BookOrder" component={BookOrderScreen} /> : null}
+          {canAccessScreen(profile?.role, 'Stores') ? <AppStack.Screen name="Stores" component={StoresScreen} /> : null}
+          {canAccessScreen(profile?.role, 'CreateStore') ? <AppStack.Screen name="CreateStore" component={CreateStoreScreen} /> : null}
+          {canAccessScreen(profile?.role, 'CreateWarehouse') ? <AppStack.Screen name="CreateWarehouse" component={CreateWarehouseScreen} /> : null}
+          {canAccessScreen(profile?.role, 'CreateLocation') ? <AppStack.Screen name="CreateLocation" component={CreateLocationScreen} /> : null}
+          {canAccessScreen(profile?.role, 'Transfer') ? <AppStack.Screen name="Transfer" component={TransferScreen} /> : null}
+          {canAccessScreen(profile?.role, 'Deliveries') ? <AppStack.Screen name="Deliveries" component={DeliveriesScreen} /> : null}
+          {canAccessScreen(profile?.role, 'History') ? <AppStack.Screen name="History" component={HistoryScreen} /> : null}
+          {canAccessScreen(profile?.role, 'Users') ? <AppStack.Screen name="Users" component={UsersScreen} /> : null}
+          {canAccessScreen(profile?.role, 'CreateUser') ? <AppStack.Screen name="CreateUser" component={CreateUserScreen} /> : null}
+          {canAccessScreen(profile?.role, 'Reports') ? <AppStack.Screen name="Reports" component={ReportsScreen} /> : null}
+          {canAccessScreen(profile?.role, 'Profile') ? <AppStack.Screen name="Profile" component={ProfileScreen} /> : null}
         </AppStack.Navigator>
       ) : (
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>

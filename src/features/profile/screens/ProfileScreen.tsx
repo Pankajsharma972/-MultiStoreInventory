@@ -14,7 +14,13 @@ export function ProfileScreen() {
   const { profile, user, signOut } = useAuth();
   const data = useInventoryData();
   const displayName = profile?.name || user?.displayName || 'User';
-  const role = profile?.role === 'admin' ? 'Administrator' : 'Store Staff';
+  const roleLabels = {
+    admin: 'Administrator',
+    accounts: 'Accounts',
+    supervisor: 'Supervisor',
+    staff: 'Store Staff',
+  } as const;
+  const role = profile?.role ? roleLabels[profile.role] : 'Store Staff';
 
   const assignedStoreNames = data.stores.map(store => store.name).join(', ');
   const storeAccessValue =

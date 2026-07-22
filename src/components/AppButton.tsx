@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
   type PressableProps,
 } from 'react-native';
@@ -16,6 +17,7 @@ type AppButtonProps = PressableProps & {
   title: string;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
   variant?: 'primary' | 'ghost' | 'danger';
 };
 
@@ -25,6 +27,7 @@ export function AppButton({
   variant = 'primary',
   disabled,
   style,
+  textStyle,
   ...props
 }: AppButtonProps) {
   const isGhost = variant === 'ghost';
@@ -46,7 +49,7 @@ export function AppButton({
       {loading ? (
         <ActivityIndicator color={isGhost ? colors.primary : colors.surface} />
       ) : (
-        <Text style={[styles.text, isGhost && styles.ghostText, isDanger && styles.dangerText]}>
+        <Text style={[styles.text, isGhost && styles.ghostText, isDanger && styles.dangerText, textStyle]}>
           {title}
         </Text>
       )}

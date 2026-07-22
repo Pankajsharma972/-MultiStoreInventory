@@ -122,6 +122,12 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
             <Text style={styles.longPressHint}>Long press a store to edit or delete</Text>
             {data.stores.map(store => {
               const storeWarehouses = data.warehouses.filter(w => w.storeId === store.id);
+              const assignedUsers = data.users.filter(user =>
+                (user.assignedStoreIds || []).includes(store.id),
+              );
+              const staff = assignedUsers.filter(user => user.role === 'staff');
+              const accounts = assignedUsers.filter(user => user.role === 'accounts');
+              const supervisors = assignedUsers.filter(user => user.role === 'supervisor');
               return (
                 <Pressable
                   key={store.id}
@@ -158,6 +164,12 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
                       );
                     })
                   )}
+                  <View style={styles.teamSection}>
+                    <Text style={styles.teamTitle}>Store Team</Text>
+                    <TeamLine label="Staff" users={staff.map(user => user.name)} />
+                    <TeamLine label="Accounts" users={accounts.map(user => user.name)} />
+                    <TeamLine label="Supervisor" users={supervisors.map(user => user.name)} />
+                  </View>
                 </Pressable>
               );
             })}
@@ -275,6 +287,15 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
   );
 }
 
+function TeamLine({ label, users }: { label: string; users: string[] }) {
+  return (
+    <View style={styles.teamLine}>
+      <Text style={styles.teamLabel}>{label} ({users.length})</Text>
+      <Text style={styles.teamNames}>{users.length > 0 ? users.join(', ') : 'Not assigned'}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   longPressHint: {
     fontFamily: typography.fontFamily.regular,
@@ -352,6 +373,34 @@ const styles = StyleSheet.create({
   warehouseName: {
     fontFamily: typography.fontFamily.semiBold,
     color: colors.inkSoft,
+  },
+  teamSection: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  teamTitle: {
+    color: colors.ink,
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.sm,
+    marginBottom: spacing.xs,
+  },
+  teamLine: {
+    gap: 2,
+  },
+  teamLabel: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+  },
+  teamNames: {
+    color: colors.inkSoft,
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.xs,
   },
   fab: {
     position: 'absolute',
