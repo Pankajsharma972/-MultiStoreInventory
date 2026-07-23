@@ -47,28 +47,29 @@ export function InventoryDataProvider({ children }: { children: React.ReactNode 
     };
 
     const unsubscribers = [
-      db.collection(collections.stores).onSnapshot(snapshot => {
+      db.collection(collections.stores).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setStores(mapSnapshot<Store>(snapshot)));
       }, handleError()),
-      db.collection(collections.warehouses).onSnapshot(snapshot => {
+      db.collection(collections.warehouses).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setWarehouses(mapSnapshot<Warehouse>(snapshot)));
       }, handleError()),
-      db.collection(collections.locations).onSnapshot(snapshot => {
+      db.collection(collections.locations).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setLocations(mapSnapshot<StorageLocation>(snapshot)));
       }, handleError()),
-      db.collection(collections.inventory).onSnapshot(snapshot => {
+      db.collection(collections.inventory).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setInventory(mapSnapshot<InventoryItem>(snapshot)));
+        dispatch(setLoading(false));
       }, handleError()),
-      db.collection(collections.orders).onSnapshot(snapshot => {
+      db.collection(collections.orders).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setOrders(sortByNewest(mapSnapshot<CustomerOrder>(snapshot))));
       }, handleError()),
-      db.collection(collections.deliveries).onSnapshot(snapshot => {
+      db.collection(collections.deliveries).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setDeliveries(sortByNewest(mapSnapshot<PendingDelivery>(snapshot))));
       }, handleError()),
-      db.collection(collections.transfers).onSnapshot(snapshot => {
+      db.collection(collections.transfers).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setTransfers(sortByNewest(mapSnapshot<StockTransfer>(snapshot))));
       }, handleError()),
-      db.collection(collections.activityLogs).onSnapshot(snapshot => {
+      db.collection(collections.activityLogs).onSnapshot({ includeMetadataChanges: true }, snapshot => {
         dispatch(setActivity(sortByNewest(mapSnapshot<ActivityLog>(snapshot))));
         dispatch(setLoading(false));
       }, handleError()),
@@ -76,7 +77,7 @@ export function InventoryDataProvider({ children }: { children: React.ReactNode 
 
     if (includeUsers) {
       unsubscribers.push(
-        db.collection(collections.users).onSnapshot(snapshot => {
+        db.collection(collections.users).onSnapshot({ includeMetadataChanges: true }, snapshot => {
           dispatch(setUsers(mapSnapshot<UserProfile>(snapshot)));
         }, handleError()),
       );
@@ -85,7 +86,7 @@ export function InventoryDataProvider({ children }: { children: React.ReactNode 
     }
 
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [dispatch, includeUsers]);
+  }, [dispatch, includeUsers, profile?.role]);
 
   return <>{children}</>;
 }

@@ -68,9 +68,19 @@ export function sortByNewest<T extends { createdAt?: unknown; updatedAt?: unknow
   });
 }
 
-function timestampValue(value?: unknown) {
-  const maybeTimestamp = value as { toDate?: () => Date } | undefined;
-  return maybeTimestamp?.toDate?.()?.getTime?.() || 0;
+function timestampValue(value?: unknown): number {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  const maybeTimestamp = value as { toDate?: () => Date; seconds?: number } | undefined;
+  if (typeof maybeTimestamp?.toDate === 'function') {
+    const d = maybeTimestamp.toDate();
+    if (d && typeof d.getTime === 'function') return d.getTime();
+  }
+  if (typeof maybeTimestamp?.seconds === 'number') {
+    return maybeTimestamp.seconds * 1000;
+  }
+  return Date.now();
 }
 
 // Flexible "type the initials" search. A query matches when, for every

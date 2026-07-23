@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
           console.log('✅ User signed in successfully');
         } catch (error) {
-          console.error('❌ Sign in failed:', error);
+          console.warn('[Firebase] Sign in failed:', error);
           throw error;
         }
       },
@@ -206,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('✅ User signup complete');
           
         } catch (error) {
-          console.error('❌ Signup failed:', error);
+          console.warn('[Firebase] Signup failed:', error);
           throw error;
         }
       },
@@ -289,16 +289,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           
         } catch (error) {
-          console.error('❌ Admin create user failed:', error);
+          console.warn('[Firebase] Admin create user failed:', error);
           throw error;
         } finally {
           if (secondaryApp) {
             try {
-              await auth(secondaryApp).signOut();
-            } catch (e) {}
-            try {
               await secondaryApp.delete();
-            } catch (e) {}
+            } catch (e) {
+              console.log('⚠️ Secondary app deletion error ignored:', e);
+            }
           }
         }
       },
@@ -309,7 +308,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await firebaseAuth.sendPasswordResetEmail(email.trim().toLowerCase());
           console.log('✅ Password reset email sent');
         } catch (error) {
-          console.error('❌ Password reset failed:', error);
+          console.warn('[Firebase] Password reset failed:', error);
           throw error;
         }
       },
@@ -320,7 +319,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await firebaseAuth.signOut();
           console.log('✅ Signed out');
         } catch (error) {
-          console.error('❌ Sign out failed:', error);
+          console.warn('[Firebase] Sign out failed:', error);
           throw error;
         }
       },

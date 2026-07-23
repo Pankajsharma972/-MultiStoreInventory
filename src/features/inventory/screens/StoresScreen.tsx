@@ -126,7 +126,7 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
                 (user.assignedStoreIds || []).includes(store.id),
               );
               const staff = assignedUsers.filter(user => user.role === 'staff');
-              const accounts = assignedUsers.filter(user => user.role === 'accounts');
+              const accounts = assignedUsers.filter(user => user.role === 'accountant');
               const supervisors = assignedUsers.filter(user => user.role === 'supervisor');
               return (
                 <Pressable
@@ -167,7 +167,7 @@ export function StoresScreen({ navigation }: StoresScreenProps) {
                   <View style={styles.teamSection}>
                     <Text style={styles.teamTitle}>Store Team</Text>
                     <TeamLine label="Staff" users={staff.map(user => user.name)} />
-                    <TeamLine label="Accounts" users={accounts.map(user => user.name)} />
+                    <TeamLine label="Accountant" users={accounts.map(user => user.name)} />
                     <TeamLine label="Supervisor" users={supervisors.map(user => user.name)} />
                   </View>
                 </Pressable>

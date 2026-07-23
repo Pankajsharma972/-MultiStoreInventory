@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -15,7 +15,6 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
 import { EmptyState } from '../../../components/EmptyState';
-import { FilterChips } from '../../../components/FilterChips';
 import { ProductThumbnail } from '../../../components/ProductThumbnail';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { SelectPill } from '../../../components/SelectPill';
@@ -74,38 +73,28 @@ export function OrdersScreen({ navigation }: Props) {
     const searchLower = searchQuery.toLowerCase().trim();
 
     return data.orders.filter(order => {
-      // First apply status and store filters
       const matchesStatus = statusFilter === ALL || order.status === statusFilter;
       const matchesStore = storeId === '' || storeId === ALL || order.storeId === storeId;
 
       if (!matchesStatus || !matchesStore) return false;
 
-      // If no search query, return all matched orders
       if (!searchLower) return true;
 
-      // Search in customer name
       const customerMatch = order.customerName?.toLowerCase().includes(searchLower) || false;
-
-      // Search in order items (products)
       const orderItems = resolveOrderItems(order);
       const productMatch = orderItems.some(item =>
         item.productName?.toLowerCase().includes(searchLower) ||
         item.brand?.toLowerCase().includes(searchLower) ||
         item.size?.toLowerCase().includes(searchLower)
       );
-
-      // Search in store name
       const store = data.stores.find(row => row.id === order.storeId);
       const storeMatch = store?.name?.toLowerCase().includes(searchLower) || false;
-
-      // Search in order ID
       const idMatch = order.id?.toLowerCase().includes(searchLower) || false;
 
       return customerMatch || productMatch || storeMatch || idMatch;
     });
   }, [data.orders, statusFilter, storeId, searchQuery, data.stores]);
 
-  // Get unique products from filtered orders for search suggestions
   const searchSuggestions = useMemo(() => {
     if (!searchQuery.trim()) return [];
 
@@ -117,15 +106,12 @@ export function OrdersScreen({ navigation }: Props) {
       items.forEach(item => {
         const productName = item.productName?.toLowerCase() || '';
         const brand = item.brand?.toLowerCase() || '';
-        const size = item.size?.toLowerCase() || '';
 
-        // Add product name if it matches search
         if (productName.includes(searchQuery.toLowerCase()) && !productSet.has(productName)) {
           productSet.add(productName);
           suggestions.push(item.productName || '');
         }
 
-        // Add brand if it matches search
         if (brand.includes(searchQuery.toLowerCase()) && !productSet.has(brand)) {
           productSet.add(brand);
           suggestions.push(item.brand || '');
@@ -133,7 +119,7 @@ export function OrdersScreen({ navigation }: Props) {
       });
     });
 
-    return suggestions.slice(0, 5); // Limit to 5 suggestions
+    return suggestions.slice(0, 5);
   }, [filteredOrders, searchQuery]);
 
   const handleLongPress = (orderId: string) => {
@@ -168,38 +154,57 @@ export function OrdersScreen({ navigation }: Props) {
     );
   };
 
-  // Get selected order for modal
   const selectedOrder = data.orders.find(o => o.id === selectedOrderId);
-  const canApproveAccounts = profile?.role === 'accounts';
+  const canApproveAccounts = profile?.role === 'accountant';
   const canCreateOrders = profile?.role === 'staff';
 
-  const orderStatusOptionsForRole = (order: typeof data.orders[0]) =>
-    statuses
-      .filter(status => status !== 'out_for_delivery')
-      .filter(status => canApproveAccounts || (status !== 'billed' && status !== 'delivered' && status !== 'cancelled'))
-      .filter(status => status !== 'delivered' || Number(order.pendingQuantity || 0) === 0)
-      .map(status => ({ label: orderStatusLabel(status), value: status }));
+  // ✅ FIX: Accounts ke liye 'billed' status option add karo
+  const orderStatusOptionsForRole = (order: typeof data.orders[0]) => {
+    let availableStatuses = [...statuses];
+
+    // Remove 'out_for_delivery' from dropdown (handled by supervisor)
+    availableStatuses = availableStatuses.filter(status => status !== 'out_for_delivery');
+
+    // ✅ Accounts can approve: billed, delivered, cancelled
+    if (canApproveAccounts) {
+      // Accounts ko saare statuses dikhao except 'out_for_delivery'
+      // But delivered only if pending quantity is 0
+      if (Number(order.pendingQuantity || 0) > 0) {
+        availableStatuses = availableStatuses.filter(status => status !== 'delivered');
+      }
+    } else {
+      // Non-accounts (staff) can only change to: ordered, cancelled
+      availableStatuses = availableStatuses.filter(
+        status => status === 'ordered' || status === 'cancelled'
+      );
+    }
+
+    // Don't show current status
+    availableStatuses = availableStatuses.filter(status => status !== order.status);
+
+    return availableStatuses.map(status => ({
+      label: orderStatusLabel(status),
+      value: status,
+    }));
+  };
 
   const handleOrderStatusChange = async (order: typeof data.orders[0], status: OrderStatus) => {
     try {
       await updateOrderStatus(order, status, profile);
+      Alert.alert('Success', `Order status updated to ${orderStatusLabel(status)}`);
     } catch (error) {
       Alert.alert('Status not allowed', (error as Error).message || 'Could not update order status.');
     }
   };
 
-  // Toggle filter popup
   const toggleFilterPopup = useCallback(() => {
     if (filterPopupVisible) {
       setFilterPopupVisible(false);
       return;
     }
 
-    // Use setTimeout to ensure the ref is available
     setTimeout(() => {
       if (filterButtonRef.current) {
-        // measureInWindow gives coordinates relative to the screen/window,
-        // which fixes the popup jumping to the left side of the screen.
         filterButtonRef.current.measureInWindow((x, y, width, height) => {
           setFilterPopupPosition({
             top: y + height + 8,
@@ -211,7 +216,6 @@ export function OrdersScreen({ navigation }: Props) {
     }, 100);
   }, [filterPopupVisible]);
 
-  // Reset all filters
   const resetFilters = useCallback(() => {
     setStoreId('');
     setStatusFilter(ALL);
@@ -219,19 +223,16 @@ export function OrdersScreen({ navigation }: Props) {
     setFilterPopupVisible(false);
   }, []);
 
-  // Handle store filter selection - closes popup automatically
   const handleStoreSelect = useCallback((id: string) => {
     setStoreId(id);
     setFilterPopupVisible(false);
   }, []);
 
-  // Handle status filter selection - closes popup automatically
   const handleStatusSelect = useCallback((status: OrderStatus | typeof ALL) => {
     setStatusFilter(status);
     setFilterPopupVisible(false);
   }, []);
 
-  // Render order item
   const renderOrder = ({ item: order }: { item: typeof data.orders[0] }) => {
     const store = data.stores.find(row => row.id === order.storeId)?.name || 'Store';
     return (
@@ -282,11 +283,6 @@ export function OrdersScreen({ navigation }: Props) {
     );
   };
 
-  // Header component containing only the search bar + suggestions.
-  // The filter popup is rendered separately as a Modal (see filterPopupModal
-  // below) so it always renders above the FlatList content, instead of
-  // living inside ListHeaderComponent where Android's elevation/zIndex
-  // stacking could push it behind later list items.
   const renderHeader = () => (
     <View style={styles.searchContainer}>
       <View style={styles.searchWrapper}>
@@ -310,7 +306,6 @@ export function OrdersScreen({ navigation }: Props) {
           </Pressable>
         )}
 
-        {/* Filter Button with Badge */}
         <View ref={filterButtonRef} collapsable={false}>
           <Pressable
             style={styles.filterButton}
@@ -323,7 +318,6 @@ export function OrdersScreen({ navigation }: Props) {
         </View>
       </View>
 
-      {/* Search Suggestions */}
       {searchQuery.length > 0 && searchSuggestions.length > 0 && !filterPopupVisible && (
         <View style={styles.suggestionsContainer}>
           <Text style={styles.suggestionsTitle}>Product Suggestions</Text>
@@ -341,10 +335,6 @@ export function OrdersScreen({ navigation }: Props) {
     </View>
   );
 
-  // Filter popup rendered as a transparent Modal. Modals render in a
-  // separate native layer above everything else (including FlatList
-  // content), so this guarantees the popup is never hidden behind the
-  // order cards, regardless of zIndex/elevation stacking quirks.
   const filterPopupModal = (
     <Modal
       animationType="fade"
@@ -372,7 +362,6 @@ export function OrdersScreen({ navigation }: Props) {
 
                 <View style={styles.popupDivider} />
 
-                {/* Store Filter */}
                 <View style={styles.filterSection}>
                   <Text style={styles.filterSectionTitle}>Store</Text>
                   <View style={styles.filterOptions}>
@@ -406,7 +395,6 @@ export function OrdersScreen({ navigation }: Props) {
 
                 <View style={styles.popupDivider} />
 
-                {/* Status Filter */}
                 <View style={styles.filterSection}>
                   <Text style={styles.filterSectionTitle}>Status</Text>
                   <View style={styles.filterOptions}>
@@ -470,10 +458,6 @@ export function OrdersScreen({ navigation }: Props) {
       title="Orders"
       scrollable={false}>
 
-      {/* Single VirtualizedList: search bar + filter popup are rendered as the
-          list header, and the empty state as ListEmptyComponent. ScreenShell
-          is given scrollable={false} above so this FlatList is not nested
-          inside ScreenShell's internal ScrollView. */}
       <FlatList
         style={styles.flatList}
         data={filteredOrders}
@@ -489,7 +473,6 @@ export function OrdersScreen({ navigation }: Props) {
 
       {filterPopupModal}
 
-      {/* Delete Order Modal */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -583,20 +566,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: spacing.md,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  cardIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.cardTintGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   orderCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -673,7 +642,6 @@ const styles = StyleSheet.create({
     ...shadows.lg,
     elevation: 8,
   },
-  // Search Styles
   searchContainer: {
     marginBottom: spacing.md,
     zIndex: 10,
@@ -754,7 +722,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: spacing.xl,
   },
-  // Filter Popup Styles
   popupOverlay: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -840,7 +807,6 @@ const styles = StyleSheet.create({
   filterOptionTextActive: {
     color: colors.surface,
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

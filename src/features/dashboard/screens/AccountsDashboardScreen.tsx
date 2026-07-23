@@ -26,10 +26,10 @@ export function AccountsDashboardScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <AppBar
-        title="Accounts Dashboard"
+        title="Accountant Dashboard"
         leftIcon="menu"
         onLeftPress={() => navigation.navigate('Operations')}
-        rolePill="Accounts"
+        rolePill="Accountant"
       />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingWrap}>

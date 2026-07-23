@@ -16,7 +16,7 @@ export function ProfileScreen() {
   const displayName = profile?.name || user?.displayName || 'User';
   const roleLabels = {
     admin: 'Administrator',
-    accounts: 'Accounts',
+    accountant: 'Accountant',
     supervisor: 'Supervisor',
     staff: 'Store Staff',
   } as const;

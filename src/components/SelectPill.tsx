@@ -19,6 +19,18 @@ export function SelectPill({
   value: string;
   onChange: (value: string) => void;
 }) {
+  // ✅ If no options, don't render
+  if (!options || options.length === 0) {
+    return (
+      <View style={styles.wrapper}>
+        {label ? <Text style={styles.label}>{label}</Text> : null}
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No options available</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrapper}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
@@ -84,5 +96,20 @@ const styles = StyleSheet.create({
   },
   wrapper: {
     marginBottom: 16,
+  },
+  emptyContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    textAlign: 'center',
   },
 });

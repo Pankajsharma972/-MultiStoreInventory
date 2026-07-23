@@ -67,6 +67,9 @@ function alertTone(level: StockAlertLevel): 'success' | 'warning' | 'danger' {
 export function InventoryScreen({ navigation }: Props) {
   const { profile } = useAuth();
   const data = useInventoryData();
+   console.log('🖥️ InventoryScreen rendered');
+  console.log('📦 Total inventory in data:', data.inventory.length);
+  console.log('📦 First 3 items:', data.inventory.slice(0, 3).map(i => i.name));
   const dispatch = useAppDispatch();
   const filters = useAppSelector(state => state.filters.inventory);
   const query = filters.query;

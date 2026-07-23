@@ -12,49 +12,59 @@ import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { typography } from '../theme/typography';
 
-// Helper functions to request runtime permissions
+// Request camera permission with proper handling
 const requestCameraPermission = async (): Promise<boolean> => {
   try {
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.CAMERA,
-      {
-        title: 'Camera Permission',
-        message: 'App needs access to your camera to take photos.',
-        buttonPositive: 'OK',
-      },
-    );
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  } catch (err) {
-    console.warn(err);
-    return false;
-  }
-};
-
-const requestGalleryPermission = async (): Promise<boolean> => {
-  try {
-    if (Platform.OS === 'android' && Platform.Version >= 33) {
+    if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+        PermissionsAndroid.PERMISSIONS.CAMERA,
         {
-          title: 'Gallery Permission',
-          message: 'App needs access to your photos.',
+          title: 'Camera Permission',
+          message: 'App needs access to your camera to take photos.',
           buttonPositive: 'OK',
-        },
-      );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
-    } else {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-        {
-          title: 'Storage Permission',
-          message: 'App needs access to your photos.',
-          buttonPositive: 'OK',
+          buttonNegative: 'Cancel',
         },
       );
       return granted === PermissionsAndroid.RESULTS.GRANTED;
     }
+    return true;
   } catch (err) {
-    console.warn(err);
+    console.warn('Camera permission error:', err);
+    return false;
+  }
+};
+
+// Request gallery permission for Android 13+
+const requestGalleryPermission = async (): Promise<boolean> => {
+  try {
+    if (Platform.OS === 'android') {
+      if (Platform.Version >= 33) {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+          {
+            title: 'Gallery Permission',
+            message: 'App needs access to your photos.',
+            buttonPositive: 'OK',
+            buttonNegative: 'Cancel',
+          },
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } else {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+          {
+            title: 'Storage Permission',
+            message: 'App needs access to your photos.',
+            buttonPositive: 'OK',
+            buttonNegative: 'Cancel',
+          },
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('Gallery permission error:', err);
     return false;
   }
 };
@@ -62,15 +72,14 @@ const requestGalleryPermission = async (): Promise<boolean> => {
 // Compress image before upload
 const compressImage = async (uri: string): Promise<string> => {
   try {
-    // Resize image to max 800px width/height with 70% quality
     const response = await ImageResizer.createResizedImage(
       uri,
-      800, // max width
-      800, // max height
-      'JPEG', // format
-      70, // quality (0-100)
-      0, // rotation
-      undefined, // output path (undefined = auto generate)
+      800,
+      800,
+      'JPEG',
+      70,
+      0,
+      undefined,
     );
     return response.uri;
   } catch (error) {
@@ -107,7 +116,6 @@ export function PhotoPickerField({
     
     setUploading(true);
     try {
-      // Compress image before upload
       const compressedUri = await compressImage(asset.uri);
       const url = await uploadProductPhoto(compressedUri);
       onChange(url);
@@ -119,43 +127,54 @@ export function PhotoPickerField({
   };
 
   const pickFromCamera = async () => {
-    // Request camera permission first
-    if (Platform.OS === 'android') {
+    try {
+      // Request permission first
       const hasPermission = await requestCameraPermission();
       if (!hasPermission) {
-        Alert.alert('Permission denied', 'Camera permission is required to take photos.');
+        Alert.alert('Permission Denied', 'Camera permission is required to take photos.');
         return;
       }
+
+      launchCamera(
+        { 
+          mediaType: 'photo', 
+          quality: 0.7,
+          maxWidth: 800,
+          maxHeight: 800,
+          includeBase64: false,
+          saveToPhotos: false,
+        }, 
+        handleResponse
+      );
+    } catch (err: any) {
+      console.warn('Camera error:', err);
+      Alert.alert('Error', 'Could not open camera. Please check permissions.');
     }
-    
-    launchCamera(
-      { 
-        mediaType: 'photo', 
-        quality: 0.5, // Lower quality for smaller file size
-        maxWidth: 800, // Max width
-        maxHeight: 800, // Max height
-        includeBase64: false,
-      }, 
-      handleResponse
-    );
   };
 
   const pickFromGallery = async () => {
-    const hasPermission = await requestGalleryPermission();
-    if (!hasPermission) {
-      Alert.alert('Permission denied', 'Gallery permission is required to select photos.');
-      return;
+    try {
+      // Request permission first
+      const hasPermission = await requestGalleryPermission();
+      if (!hasPermission) {
+        Alert.alert('Permission Denied', 'Gallery permission is required to select photos.');
+        return;
+      }
+
+      launchImageLibrary(
+        { 
+          mediaType: 'photo', 
+          quality: 0.7,
+          maxWidth: 800,
+          maxHeight: 800,
+          includeBase64: false,
+        }, 
+        handleResponse
+      );
+    } catch (err: any) {
+      console.warn('Gallery error:', err);
+      Alert.alert('Error', 'Could not open gallery. Please check permissions.');
     }
-    launchImageLibrary(
-      { 
-        mediaType: 'photo', 
-        quality: 0.5,
-        maxWidth: 800,
-        maxHeight: 800,
-        includeBase64: false,
-      }, 
-      handleResponse
-    );
   };
 
   return (
@@ -185,14 +204,14 @@ export function PhotoPickerField({
             disabled={uploading}
             onPress={pickFromCamera}
             style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}>
-            <AppIcon name="edit" size={14} tintColor={colors.primary} />
+            <AppIcon name="camera" size={14} tintColor={colors.primary} />
             <Text style={styles.buttonText}>Take Photo</Text>
           </Pressable>
           <Pressable
             disabled={uploading}
             onPress={pickFromGallery}
             style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}>
-            <AppIcon name="box" size={14} tintColor={colors.primary} />
+            <AppIcon name="image" size={14} tintColor={colors.primary} />
             <Text style={styles.buttonText}>Choose from Gallery</Text>
           </Pressable>
           {value ? (

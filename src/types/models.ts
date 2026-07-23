@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'staff' | 'accounts' | 'supervisor';
+export type UserRole = 'admin' | 'staff' | 'accountant' | 'supervisor';
 
 export type StockAlertLevel = 'ok' | 'low' | 'critical' | 'out_of_stock';
 

@@ -22,7 +22,7 @@ export function OperationsScreen({ navigation }: Props) {
   const { width } = useWindowDimensions();
 
   const isAdmin = profile?.role === 'admin';
-  const isAccounts = profile?.role === 'accounts';
+  const isAccounts = profile?.role === 'accountant';
   const isSupervisor = profile?.role === 'supervisor';
 
   type Module = {

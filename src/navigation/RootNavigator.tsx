@@ -91,7 +91,7 @@ function SupervisorHomeStack() {
 
 function homeComponentForRole(role?: UserRole) {
   if (role === 'admin') return AdminHomeStack;
-  if (role === 'accounts') return AccountsHomeStack;
+  if (role === 'accountant') return AccountsHomeStack;
   if (role === 'supervisor') return SupervisorHomeStack;
   return StaffHomeStack;
 }
@@ -99,7 +99,7 @@ function homeComponentForRole(role?: UserRole) {
 function MainTabs({ role }: { role?: UserRole }) {
   const HomeComponent = homeComponentForRole(role);
   const showInventory = role === 'admin' || role === 'staff';
-  const showOrders = role === 'admin' || role === 'staff' || role === 'accounts';
+  const showOrders = role === 'admin' || role === 'staff' || role === 'accountant';
   const showAlerts = role === 'admin' || role === 'staff';
 
   return (
@@ -159,7 +159,7 @@ function MainTabs({ role }: { role?: UserRole }) {
 function canAccessScreen(role: UserRole | undefined, route: keyof AppStackParamList) {
   if (role === 'admin') return true;
   if (route === 'MainTabs' || route === 'Profile' || route === 'History') return true;
-  if (role === 'accounts') {
+  if (role === 'accountant') {
     return route === 'Orders' || route === 'Deliveries' || route === 'Reports';
   }
   if (role === 'supervisor') {

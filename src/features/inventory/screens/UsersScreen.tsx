@@ -51,7 +51,7 @@ const storeOwners = useMemo(() => {
   const map = new Map<string, UserProfile>();
   data.users.forEach(u => {
     // ✅ Accounts aur supervisor ko bhi include karo
-    if (u.role !== 'staff' && u.role !== 'accounts' && u.role !== 'supervisor') return;
+    if (u.role !== 'staff' && u.role !== 'accountant' && u.role !== 'supervisor') return;
     (u.assignedStoreIds || []).forEach(id => {
       if (!map.has(id)) map.set(id, u);
     });

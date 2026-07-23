@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppIcon } from '../../../components/AppIcon';
@@ -40,7 +40,14 @@ export function DeliveriesScreen({ navigation }: Props) {
   const [truckPhotos, setTruckPhotos] = useState<Record<string, string>>({});
   const [dispatchQty, setDispatchQty] = useState<Record<string, Record<string, string>>>({});
   const canSupervise = profile?.role === 'supervisor';
-  const canApproveAccounts = profile?.role === 'accounts';
+  const canApproveAccounts = profile?.role === 'accountant';
+
+  // ✅ Real-time data update ke liye useEffect
+  useEffect(() => {
+    // Data automatically updates via useInventoryData
+    // No need to do anything, just log for debugging
+    console.log('🔄 Deliveries updated:', data.deliveries.length);
+  }, [data.deliveries]);
 
   const submitDispatch = async (delivery: typeof data.deliveries[0]) => {
     try {
@@ -57,6 +64,8 @@ export function DeliveriesScreen({ navigation }: Props) {
         profile,
       );
       setDispatchQty(current => ({ ...current, [delivery.id]: {} }));
+      // ✅ Clear truck photo after successful dispatch
+      setTruckPhotos(current => ({ ...current, [delivery.id]: '' }));
       Alert.alert('Dispatch approved', 'Delivery quantities and truck photo have been saved.');
     } catch (error) {
       Alert.alert('Dispatch failed', (error as Error).message || 'Could not approve dispatch.');
@@ -69,6 +78,7 @@ export function DeliveriesScreen({ navigation }: Props) {
   ) => {
     try {
       await updateDeliveryStatus(delivery, status, profile);
+      Alert.alert('Success', `Delivery status updated to ${orderStatusLabel(status)}`);
     } catch (error) {
       Alert.alert('Status not allowed', (error as Error).message || 'Could not update delivery status.');
     }
@@ -90,6 +100,39 @@ export function DeliveriesScreen({ navigation }: Props) {
   const pendingCount = data.deliveries.filter(
     d => d.status !== 'delivered' && d.status !== 'cancelled',
   ).length;
+
+  // ✅ Accounts ke liye sirf delivered aur cancelled options
+  const getStatusOptionsForRole = (delivery: typeof data.deliveries[0]) => {
+    let availableStatuses = [...statuses];
+    
+    // Remove out_for_delivery (handled by supervisor)
+    availableStatuses = availableStatuses.filter(status => status !== 'out_for_delivery');
+    
+    if (canApproveAccounts) {
+      // ✅ Accounts: Sirf delivered aur cancelled
+      availableStatuses = availableStatuses.filter(
+        status => status === 'delivered' || status === 'cancelled'
+      );
+      
+      // ✅ Delivered only if pending quantity is 0
+      if (Number(delivery.pendingQuantity || 0) > 0) {
+        availableStatuses = availableStatuses.filter(status => status !== 'delivered');
+      }
+    } else {
+      // Non-accounts: Sirf ordered, billed, partially_delivered
+      availableStatuses = availableStatuses.filter(
+        status => status === 'ordered' || status === 'billed' || status === 'partially_delivered'
+      );
+    }
+    
+    // Current status ko remove karo
+    availableStatuses = availableStatuses.filter(status => status !== delivery.status);
+    
+    return availableStatuses.map(status => ({
+      label: orderStatusLabel(status),
+      value: status,
+    }));
+  };
 
   return (
     <ScreenShell
@@ -138,6 +181,10 @@ export function DeliveriesScreen({ navigation }: Props) {
         filteredDeliveries.map(delivery => {
           const store = data.stores.find(row => row.id === delivery.storeId)?.name || 'Store';
           const linkedOrder = data.orders.find(order => order.id === delivery.orderId);
+          
+          // ✅ Check if truck photo exists (from Firestore or local upload)
+          const truckPhotoUrl = truckPhotos[delivery.id] || delivery.truckPhotoUrl || '';
+          
           return (
             <View key={delivery.id} style={styles.deliveryCard}>
               <View style={styles.deliveryHeader}>
@@ -176,10 +223,16 @@ export function DeliveriesScreen({ navigation }: Props) {
 
               <Text style={styles.dateText}>{readableDate(delivery.createdAt)}</Text>
 
-              {delivery.truckPhotoUrl ? (
+              {/* ✅ Truck Photo Display - Shows if exists */}
+              {truckPhotoUrl ? (
                 <View style={styles.truckPhotoWrap}>
-                  <Text style={styles.truckPhotoLabel}>Truck Loading Photo</Text>
-                  <Image source={{ uri: delivery.truckPhotoUrl }} style={styles.truckPhoto} />
+                  <Text style={styles.truckPhotoLabel}>📸 Truck Loading Photo</Text>
+                  <Image 
+                    source={{ uri: truckPhotoUrl }} 
+                    style={styles.truckPhoto}
+                    resizeMode="cover"
+                    onError={() => console.log('❌ Failed to load truck photo')}
+                  />
                 </View>
               ) : null}
 
@@ -229,13 +282,7 @@ export function DeliveriesScreen({ navigation }: Props) {
                 <SelectPill
                   label="Update Status"
                   onChange={value => handleDeliveryStatusChange(delivery, value as DeliveryStatus)}
-                  options={statuses
-                    .filter(status => status !== 'out_for_delivery')
-                    .filter(status => canApproveAccounts || (status !== 'billed' && status !== 'delivered' && status !== 'cancelled'))
-                    .map(status => ({
-                      label: orderStatusLabel(status),
-                      value: status,
-                    }))}
+                  options={getStatusOptionsForRole(delivery)}
                   value={delivery.status}
                 />
               </View>
@@ -395,6 +442,7 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     color: colors.muted,
     padding: spacing.sm,
+    backgroundColor: colors.background,
   },
   truckPhoto: {
     width: '100%',

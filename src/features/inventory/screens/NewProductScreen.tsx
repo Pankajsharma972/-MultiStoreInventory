@@ -13,11 +13,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
 import { AppTextInput } from '../../../components/AppTextInput';
-import { Dropdown } from '../../../components/Dropdown';
 import { PhotoPickerField } from '../../../components/PhotoPickerField';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { useAuth } from '../../auth/AuthProvider';
 import { useInventoryData } from '../../../services/useInventoryData';
+import { useAppDispatch } from '../../../store/hooks';
+import { resetInventoryFilters } from '../../../store/slices/filtersSlice';
 import { glazeLabel, glazeOptions } from '../../../utils/inventoryHelpers';
 import { collections, db } from '../../../services/firebase';
 import { colors } from '../../../theme/colors';
@@ -44,13 +45,20 @@ type CustomGlaze = {
   label: string;
 };
 
+type ActiveDropdown =
+  | { type: 'glaze' }
+  | { type: 'store'; index: number }
+  | { type: 'warehouse'; index: number }
+  | { type: 'location'; index: number }
+  | null;
+
 export function NewProductScreen({ route, navigation }: Props) {
+  const dispatch = useAppDispatch();
   const { profile } = useAuth();
   const data = useInventoryData();
   const editingItem = route.params?.item as InventoryItem | undefined;
   const insets = useSafeAreaInsets();
 
-  // All useState hooks first - no conditionals
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
   const [brand, setBrand] = useState('');
@@ -66,11 +74,19 @@ export function NewProductScreen({ route, navigation }: Props) {
   const [locations, setLocations] = useState<LocationRow[]>([
     { storeId: '', warehouseId: '', locationCode: '', quantity: '0', minimumQuantity: '1' },
   ]);
-  
-  // New state for manage glazes modal
   const [manageGlazesModalVisible, setManageGlazesModalVisible] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<ActiveDropdown>(null);
 
-  // All useEffect hooks next
+  const defaultStoreId = useMemo(() => data.stores[0]?.id || '', [data.stores]);
+  
+  const defaultWarehouseId = useCallback((storeId: string) => {
+    return data.warehouses.find(w => w.storeId === storeId)?.id || '';
+  }, [data.warehouses]);
+
+  const defaultLocationCode = useCallback((storeId: string, warehouseId: string) => {
+    return data.locations.find(l => l.storeId === storeId && l.warehouseId === warehouseId)?.code || '';
+  }, [data.locations]);
+
   useEffect(() => {
     if (editingItem) {
       setName(editingItem.name);
@@ -95,13 +111,12 @@ export function NewProductScreen({ route, navigation }: Props) {
         }));
         setCustomGlazes(glazes);
       } catch (error) {
-        console.error('Error loading custom glazes:', error);
+        // Silent error
       }
     };
     loadCustomGlazes();
   }, []);
 
-  // Pre-fill default locations for row 0 once data loads
   useEffect(() => {
     if (!editingItem && defaultStoreId && locations[0].storeId === '') {
       const sId = defaultStoreId;
@@ -109,22 +124,10 @@ export function NewProductScreen({ route, navigation }: Props) {
       const locCode = defaultLocationCode(sId, wId);
       setLocations([{ storeId: sId, warehouseId: wId, locationCode: locCode, quantity: '0', minimumQuantity: '1' }]);
     }
-  }, [data.stores, data.warehouses, data.locations, editingItem]);
-
-  // All useMemo hooks next
-  const defaultStoreId = useMemo(() => data.stores[0]?.id || '', [data.stores]);
-  
-  const defaultWarehouseId = useCallback((storeId: string) => {
-    return data.warehouses.find(w => w.storeId === storeId)?.id || '';
-  }, [data.warehouses]);
-
-  const defaultLocationCode = useCallback((storeId: string, warehouseId: string) => {
-    return data.locations.find(l => l.storeId === storeId && l.warehouseId === warehouseId)?.code || '';
-  }, [data.locations]);
+  }, [data.stores, data.warehouses, data.locations, editingItem, defaultStoreId, defaultWarehouseId, defaultLocationCode]);
 
   const canSave = useMemo(() => {
     if (!name.trim() || !category.trim()) return false;
-    // Image is required for all products
     if (!photoUrl.trim()) return false;
     if (editingItem) return true;
 
@@ -140,7 +143,6 @@ export function NewProductScreen({ route, navigation }: Props) {
     );
   }, [name, category, photoUrl, locations, editingItem]);
 
-  // Memoized glaze options to prevent recreation on every render
   const glazeOptionsWithAdd = useMemo(() => {
     const defaultOptions = glazeOptions.map(option => ({ 
       label: glazeLabel(option), 
@@ -152,7 +154,6 @@ export function NewProductScreen({ route, navigation }: Props) {
       value: glaze.value,
     }));
 
-    // Only show separator if there are custom glazes
     const separator = customOptions.length > 0 
       ? [{ label: '──────────', value: 'SEPARATOR', disabled: true }]
       : [];
@@ -166,7 +167,6 @@ export function NewProductScreen({ route, navigation }: Props) {
     ];
   }, [customGlazes]);
 
-  // All handlers
   const handleAddLocation = () => {
     const sId = defaultStoreId;
     const wId = defaultWarehouseId(sId);
@@ -188,22 +188,24 @@ export function NewProductScreen({ route, navigation }: Props) {
     setLocations(locations.filter((_, i) => i !== index));
   };
 
-  const handleUpdateLocation = (index: number, fields: Partial<LocationRow>) => {
-    const updated = [...locations];
-    const prev = updated[index];
-    const next = { ...prev, ...fields };
+  const handleUpdateLocation = useCallback((index: number, fields: Partial<LocationRow>) => {
+    setLocations(current => {
+      const updated = [...current];
+      const prev = updated[index];
+      const next = { ...prev, ...fields };
 
-    if (fields.storeId && fields.storeId !== prev.storeId) {
-      next.warehouseId = defaultWarehouseId(fields.storeId);
-      next.locationCode = defaultLocationCode(fields.storeId, next.warehouseId);
-    }
-    else if (fields.warehouseId && fields.warehouseId !== prev.warehouseId) {
-      next.locationCode = defaultLocationCode(next.storeId, fields.warehouseId);
-    }
+      if (fields.storeId && fields.storeId !== prev.storeId) {
+        next.warehouseId = defaultWarehouseId(fields.storeId);
+        next.locationCode = defaultLocationCode(fields.storeId, next.warehouseId);
+      }
+      else if (fields.warehouseId && fields.warehouseId !== prev.warehouseId) {
+        next.locationCode = defaultLocationCode(next.storeId, fields.warehouseId);
+      }
 
-    updated[index] = next;
-    setLocations(updated);
-  };
+      updated[index] = next;
+      return updated;
+    });
+  }, [defaultWarehouseId, defaultLocationCode]);
 
   const handleGlazeSelect = useCallback((value: string) => {
     if (value === 'ADD_NEW') {
@@ -215,7 +217,95 @@ export function NewProductScreen({ route, navigation }: Props) {
     }
   }, []);
 
-  // Delete custom glaze
+  const activeDropdownConfig = useMemo(() => {
+    if (!activeDropdown) return null;
+
+    if (activeDropdown.type === 'glaze') {
+      return {
+        title: 'Select Glaze / Finish',
+        options: glazeOptionsWithAdd.map(opt => ({
+          label: opt.label,
+          value: opt.value,
+          disabled: 'disabled' in opt ? Boolean(opt.disabled) : false,
+        })),
+        selectedValue: glaze,
+        emptyText: 'No glazes available',
+        onSelect: (val: string) => {
+          handleGlazeSelect(val);
+          setActiveDropdown(null);
+        },
+      };
+    }
+
+    const locIndex = activeDropdown.index;
+    const targetLoc = locations[locIndex];
+    if (!targetLoc) return null;
+
+    if (activeDropdown.type === 'store') {
+      const storeOptions = data.stores.map(s => ({ label: s.name, value: s.id, disabled: false }));
+      return {
+        title: `Select Store (Location #${locIndex + 1})`,
+        options: storeOptions.length > 0 ? storeOptions : [{ label: 'No stores available', value: '', disabled: true }],
+        selectedValue: targetLoc.storeId,
+        emptyText: 'No stores available — create one in Stores screen',
+        onSelect: (val: string) => {
+          if (val) {
+            handleUpdateLocation(locIndex, { storeId: val });
+          }
+          setActiveDropdown(null);
+        },
+      };
+    }
+
+    if (activeDropdown.type === 'warehouse') {
+      const warehouses = data.warehouses.filter(w => w.storeId === targetLoc.storeId);
+      const warehouseOptions = warehouses.map(w => ({ label: w.name, value: w.id, disabled: false }));
+      return {
+        title: `Select Warehouse (Location #${locIndex + 1})`,
+        options: warehouseOptions.length > 0 ? warehouseOptions : [{ label: 'No warehouses available', value: '', disabled: true }],
+        selectedValue: targetLoc.warehouseId,
+        emptyText: 'No warehouses available for this store',
+        onSelect: (val: string) => {
+          if (val) {
+            handleUpdateLocation(locIndex, { warehouseId: val });
+          }
+          setActiveDropdown(null);
+        },
+      };
+    }
+
+    if (activeDropdown.type === 'location') {
+      const locationsList = data.locations.filter(
+        l => l.storeId === targetLoc.storeId && l.warehouseId === targetLoc.warehouseId
+      );
+      const locationOptions = locationsList.map(l => ({ label: l.code, value: l.code, disabled: false }));
+      return {
+        title: `Select Location Code (Location #${locIndex + 1})`,
+        options: locationOptions.length > 0 ? locationOptions : [{ label: 'No locations available', value: '', disabled: true }],
+        selectedValue: targetLoc.locationCode,
+        emptyText: 'No locations available in this warehouse — create in Stores screen',
+        onSelect: (val: string) => {
+          if (val) {
+            handleUpdateLocation(locIndex, { locationCode: val });
+          }
+          setActiveDropdown(null);
+        },
+      };
+    }
+
+    return null;
+  }, [
+    activeDropdown,
+    glaze,
+    locations,
+    glazeOptionsWithAdd,
+    data.stores,
+    data.warehouses,
+    data.locations,
+    handleGlazeSelect,
+    handleUpdateLocation,
+  ]);
+
   const handleDeleteCustomGlaze = async (glazeId: string, glazeValue: GlazeOption) => {
     Alert.alert(
       'Delete Glaze',
@@ -227,7 +317,6 @@ export function NewProductScreen({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Check if any product is using this glaze
               const productsWithGlaze = await db
                 .collection(collections.inventory)
                 .where('glaze', '==', glazeValue)
@@ -241,13 +330,9 @@ export function NewProductScreen({ route, navigation }: Props) {
                 return;
               }
 
-              // Delete from Firestore
               await db.collection('customGlazes').doc(glazeId).delete();
-
-              // Update local state
               setCustomGlazes(customGlazes.filter(g => g.id !== glazeId));
               
-              // If currently selected glaze is deleted, clear it
               if (glaze === glazeValue) {
                 setGlaze('');
               }
@@ -302,71 +387,47 @@ export function NewProductScreen({ route, navigation }: Props) {
       Alert.alert('Error', 'Could not add new glaze.');
     }
   };
-const navigateToInventory = useCallback(() => {
-  navigation.reset({
-    index: 0,
-    routes: [
-      {
-        name: 'MainTabs',
-        state: {
-          routes: [
-            { name: 'HomeTab' },
-            { name: 'Inventory' },
-          ],
-          index: 1, // Index of Inventory tab
-        },
-      },
-    ],
-  });
-}, [navigation]);
-  const handleSave = async () => {
-  if (!name.trim() || !category.trim()) {
-    Alert.alert('Error', 'Product name and category are required.');
-    return;
-  }
 
-  if (!photoUrl.trim()) {
-    Alert.alert('Error', 'Please select an image.');
-    return;
-  }
-
-  if (!canSave) return;
-  setSaving(true);
-
-  try {
-    if (editingItem) {
-      await db.collection(collections.inventory).doc(editingItem.id).update({
-        name: name.trim(),
-        category: category.trim(),
-        brand: brand.trim(),
-        glaze,
-        size: size.trim(),
-        sku: sku.trim(),
-        photoUrl: photoUrl.trim(),
-        minimumQuantity: Number(editMinimum || 0),
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      });
-
-      await db.collection(collections.activityLogs).add({
-        action: 'Product Updated',
-        detail: `Product "${editingItem.name}" updated (details, brand, glaze, photo, threshold)`,
-        storeId: editingItem.storeId,
-        createdBy: profile?.name || profile?.email || 'System',
-        createdAt: firestore.FieldValue.serverTimestamp(),
-      });
-
-      Alert.alert('Success', 'Product details updated successfully.', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+  const navigateToInventory = useCallback(() => {
+    dispatch(resetInventoryFilters());
+    if (navigation.canGoBack()) {
+      navigation.goBack();
     } else {
-      const batch = db.batch();
+      navigation.reset({
+        index: 0,
+        routes: [
+          {
+            name: 'MainTabs',
+            state: {
+              routes: [
+                { name: 'HomeTab' },
+                { name: 'Inventory' },
+              ],
+              index: 1,
+            },
+          },
+        ],
+      });
+    }
+  }, [navigation, dispatch]);
 
-      for (const loc of locations) {
-        const docRef = db.collection(collections.inventory).doc();
-        const quantity = Number(loc.quantity || 0);
-        const minimumQuantity = Number(loc.minimumQuantity || 1);
+  const handleSave = async () => {
+    if (!name.trim() || !category.trim()) {
+      Alert.alert('Error', 'Product name and category are required.');
+      return;
+    }
 
-        batch.set(docRef, {
+    if (!photoUrl.trim()) {
+      Alert.alert('Error', 'Please select an image.');
+      return;
+    }
+
+    if (!canSave) return;
+    setSaving(true);
+
+    try {
+      if (editingItem) {
+        await db.collection(collections.inventory).doc(editingItem.id).update({
           name: name.trim(),
           category: category.trim(),
           brand: brand.trim(),
@@ -374,42 +435,78 @@ const navigateToInventory = useCallback(() => {
           size: size.trim(),
           sku: sku.trim(),
           photoUrl: photoUrl.trim(),
-          storeId: loc.storeId,
-          warehouseId: loc.warehouseId,
-          locationCode: loc.locationCode.toUpperCase(),
-          quantity,
-          minimumQuantity,
-          createdAt: firestore.FieldValue.serverTimestamp(),
+          minimumQuantity: Number(editMinimum || 0),
           updatedAt: firestore.FieldValue.serverTimestamp(),
         });
 
-        const logRef = db.collection(collections.activityLogs).doc();
-        batch.set(logRef, {
-          action: 'Product Created',
-          detail: `${name.trim()} added with ${quantity} units at location ${loc.locationCode.toUpperCase()}`,
-          storeId: loc.storeId,
+        await db.collection(collections.activityLogs).add({
+          action: 'Product Updated',
+          detail: `Product "${editingItem.name}" updated`,
+          storeId: editingItem.storeId,
           createdBy: profile?.name || profile?.email || 'System',
           createdAt: firestore.FieldValue.serverTimestamp(),
         });
-      }
 
-      await batch.commit();
-      
-      // Success - navigate to Inventory tab
-      Alert.alert('Success', 'Product saved with specified locations.', [
-        { 
-          text: 'OK', 
-          onPress: navigateToInventory
-        },
-      ]);
+        Alert.alert('Success', 'Product details updated successfully.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              dispatch(resetInventoryFilters());
+              navigation.goBack();
+            },
+          },
+        ]);
+      } else {
+        const batch = db.batch();
+
+        for (const loc of locations) {
+          const docRef = db.collection(collections.inventory).doc();
+          const quantity = Number(loc.quantity || 0);
+          const minimumQuantity = Number(loc.minimumQuantity || 1);
+
+          batch.set(docRef, {
+            name: name.trim(),
+            category: category.trim(),
+            brand: brand.trim(),
+            glaze,
+            size: size.trim(),
+            sku: sku.trim(),
+            photoUrl: photoUrl.trim(),
+            storeId: loc.storeId,
+            warehouseId: loc.warehouseId,
+            locationCode: loc.locationCode.toUpperCase(),
+            quantity,
+            minimumQuantity,
+            createdAt: firestore.FieldValue.serverTimestamp(),
+            updatedAt: firestore.FieldValue.serverTimestamp(),
+          });
+
+          const logRef = db.collection(collections.activityLogs).doc();
+          batch.set(logRef, {
+            action: 'Product Created',
+            detail: `${name.trim()} added with ${quantity} units at location ${loc.locationCode.toUpperCase()}`,
+            storeId: loc.storeId,
+            createdBy: profile?.name || profile?.email || 'System',
+            createdAt: firestore.FieldValue.serverTimestamp(),
+          });
+        }
+
+        await batch.commit();
+        
+        Alert.alert('Success', 'Product saved with specified locations.', [
+          { 
+            text: 'OK', 
+            onPress: navigateToInventory
+          },
+        ]);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not save product.');
+    } finally {
+      setSaving(false);
     }
-  } catch (err: any) {
-    Alert.alert('Error', err.message || 'Could not save product.');
-  } finally {
-    setSaving(false);
-  }
-};
-  // Manage Glazes Modal
+  };
+
   const ManageGlazesModal = () => (
     <Modal
       visible={manageGlazesModalVisible}
@@ -459,7 +556,6 @@ const navigateToInventory = useCallback(() => {
               ))
             )}
 
-            {/* Add new glaze from manage modal */}
             <View style={styles.manageAddSection}>
               <Text style={styles.manageAddLabel}>Add New Glaze</Text>
               <View style={styles.manageAddRow}>
@@ -520,20 +616,19 @@ const navigateToInventory = useCallback(() => {
             value={brand}
           />
 
-          {/* Glaze Dropdown with Add New option */}
           <View style={styles.glazeContainer}>
             <Text style={styles.glazeLabel}>Glaze / Finish</Text>
-            <Dropdown
-              label=""
-              placeholder="Select a glaze"
-              value={glaze}
-              onChange={handleGlazeSelect}
-              options={glazeOptionsWithAdd}
-              emptyText="No glazes available"
-            />
+            <Pressable
+              style={({ pressed }) => [styles.inlineFieldButton, pressed && styles.inlineFieldPressed]}
+              onPress={() => setActiveDropdown({ type: 'glaze' })}>
+              <Text style={[styles.inlineFieldValueText, !glaze && styles.inlineFieldPlaceholder]}>
+                {glaze ? glazeLabel(glaze) : 'Select a glaze'}
+              </Text>
+              <AppIcon name="chevronDown" size={18} tintColor={colors.muted} />
+            </Pressable>
             {customGlazes.length > 0 && (
               <Text style={styles.customGlazeHint}>
-                {customGlazes.length} custom glaze{customGlazes.length > 1 ? 's' : ''} available • Tap ⚙️ Manage to delete
+                {customGlazes.length} custom glaze{customGlazes.length > 1 ? 's' : ''} available
               </Text>
             )}
           </View>
@@ -562,7 +657,11 @@ const navigateToInventory = useCallback(() => {
             />
           ) : null}
 
-          <PhotoPickerField value={photoUrl} onChange={setPhotoUrl} required />
+          <PhotoPickerField 
+            value={photoUrl} 
+            onChange={setPhotoUrl} 
+            required 
+          />
         </View>
 
         {!editingItem ? (
@@ -575,10 +674,9 @@ const navigateToInventory = useCallback(() => {
             </View>
 
             {locations.map((loc, index) => {
+              const selectedStore = data.stores.find(s => s.id === loc.storeId);
               const warehouses = data.warehouses.filter(w => w.storeId === loc.storeId);
-              const locationsList = data.locations.filter(
-                l => l.storeId === loc.storeId && l.warehouseId === loc.warehouseId
-              );
+              const selectedWarehouse = warehouses.find(w => w.id === loc.warehouseId);
 
               return (
                 <View key={index} style={styles.locationRowContainer}>
@@ -594,32 +692,41 @@ const navigateToInventory = useCallback(() => {
                     )}
                   </View>
 
-                  <Dropdown
-                    label="Store *"
-                    placeholder="Select a store"
-                    value={loc.storeId}
-                    onChange={val => handleUpdateLocation(index, { storeId: val })}
-                    options={data.stores.map(s => ({ label: s.name, value: s.id }))}
-                    emptyText="No stores — create one in Stores"
-                  />
+                  <View style={styles.inlineFieldWrapper}>
+                    <Text style={styles.inlineFieldLabel}>Store *</Text>
+                    <Pressable
+                      style={({ pressed }) => [styles.inlineFieldButton, pressed && styles.inlineFieldPressed]}
+                      onPress={() => setActiveDropdown({ type: 'store', index })}>
+                      <Text style={[styles.inlineFieldValueText, !loc.storeId && styles.inlineFieldPlaceholder]}>
+                        {selectedStore?.name || 'Select a store'}
+                      </Text>
+                      <AppIcon name="chevronDown" size={18} tintColor={colors.muted} />
+                    </Pressable>
+                  </View>
 
-                  <Dropdown
-                    label="Warehouse *"
-                    placeholder="Select a warehouse"
-                    value={loc.warehouseId}
-                    onChange={val => handleUpdateLocation(index, { warehouseId: val })}
-                    options={warehouses.map(w => ({ label: w.name, value: w.id }))}
-                    emptyText="No warehouses in this store"
-                  />
+                  <View style={styles.inlineFieldWrapper}>
+                    <Text style={styles.inlineFieldLabel}>Warehouse *</Text>
+                    <Pressable
+                      style={({ pressed }) => [styles.inlineFieldButton, pressed && styles.inlineFieldPressed]}
+                      onPress={() => setActiveDropdown({ type: 'warehouse', index })}>
+                      <Text style={[styles.inlineFieldValueText, !loc.warehouseId && styles.inlineFieldPlaceholder]}>
+                        {selectedWarehouse?.name || 'Select a warehouse'}
+                      </Text>
+                      <AppIcon name="chevronDown" size={18} tintColor={colors.muted} />
+                    </Pressable>
+                  </View>
 
-                  <Dropdown
-                    label="Rack / Bin / Location *"
-                    placeholder="Select a location"
-                    value={loc.locationCode}
-                    onChange={val => handleUpdateLocation(index, { locationCode: val })}
-                    options={locationsList.map(l => ({ label: l.code, value: l.code }))}
-                    emptyText="No locations — create in Stores"
-                  />
+                  <View style={styles.inlineFieldWrapper}>
+                    <Text style={styles.inlineFieldLabel}>Rack / Bin / Location *</Text>
+                    <Pressable
+                      style={({ pressed }) => [styles.inlineFieldButton, pressed && styles.inlineFieldPressed]}
+                      onPress={() => setActiveDropdown({ type: 'location', index })}>
+                      <Text style={[styles.inlineFieldValueText, !loc.locationCode && styles.inlineFieldPlaceholder]}>
+                        {loc.locationCode || 'Select a location'}
+                      </Text>
+                      <AppIcon name="chevronDown" size={18} tintColor={colors.muted} />
+                    </Pressable>
+                  </View>
 
                   <View style={styles.qtyContainer}>
                     <View style={{ flex: 1, marginRight: spacing.sm }}>
@@ -661,7 +768,6 @@ const navigateToInventory = useCallback(() => {
         </View>
       </ScrollView>
 
-      {/* Add New Glaze Modal */}
       <Modal
         visible={addGlazeModalVisible}
         transparent
@@ -711,8 +817,72 @@ const navigateToInventory = useCallback(() => {
         </View>
       </Modal>
 
-      {/* Manage Glazes Modal */}
       <ManageGlazesModal />
+
+      <Modal
+        visible={activeDropdown !== null && activeDropdownConfig !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActiveDropdown(null)}
+        statusBarTranslucent>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setActiveDropdown(null)}
+          />
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{activeDropdownConfig?.title || 'Select Option'}</Text>
+              <Pressable
+                onPress={() => setActiveDropdown(null)}
+                style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              {!activeDropdownConfig || activeDropdownConfig.options.length === 0 || 
+               (activeDropdownConfig.options.length === 1 && activeDropdownConfig.options[0].disabled) ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>
+                    {activeDropdownConfig?.emptyText || 'No options available'}
+                  </Text>
+                </View>
+              ) : (
+                activeDropdownConfig.options.map(option => {
+                  const isSelected = option.value === activeDropdownConfig.selectedValue;
+                  const isDisabled = option.disabled;
+                  return (
+                    <Pressable
+                      key={option.value || 'empty'}
+                      disabled={isDisabled}
+                      onPress={() => activeDropdownConfig.onSelect(option.value)}
+                      style={({ pressed }) => [
+                        styles.dropdownOptionRow,
+                        isSelected && styles.dropdownOptionActive,
+                        pressed && !isDisabled && styles.dropdownOptionPressed,
+                        isDisabled && styles.dropdownOptionDisabled,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.dropdownOptionText,
+                          isSelected && styles.dropdownOptionTextActive,
+                          isDisabled && styles.dropdownOptionTextDisabled,
+                        ]}>
+                        {option.label}
+                      </Text>
+                      {isSelected && !isDisabled ? (
+                        <AppIcon name="check" size={18} tintColor={colors.primary} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScreenShell>
   );
 }
@@ -765,7 +935,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     fontStyle: 'italic',
   },
-  // Manage Glazes Modal Styles
   manageGlazeItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -960,5 +1129,70 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     color: colors.inkSoft,
+  },
+  inlineFieldWrapper: {
+    marginBottom: spacing.md,
+  },
+  inlineFieldLabel: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.sm,
+    color: colors.inkSoft,
+    marginBottom: 8,
+  },
+  inlineFieldButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 52,
+    paddingHorizontal: 16,
+  },
+  inlineFieldPressed: {
+    opacity: 0.85,
+  },
+  inlineFieldValueText: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.regular,
+    marginRight: spacing.sm,
+  },
+  inlineFieldPlaceholder: {
+    color: colors.muted,
+  },
+  dropdownOptionRow: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    marginBottom: 4,
+  },
+  dropdownOptionActive: {
+    backgroundColor: colors.cardTintGreen,
+  },
+  dropdownOptionPressed: {
+    opacity: 0.7,
+  },
+  dropdownOptionDisabled: {
+    opacity: 0.5,
+  },
+  dropdownOptionText: {
+    color: colors.inkSoft,
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    fontFamily: typography.fontFamily.medium,
+    marginRight: spacing.sm,
+  },
+  dropdownOptionTextActive: {
+    color: colors.primary,
+    fontFamily: typography.fontFamily.semiBold,
+  },
+  dropdownOptionTextDisabled: {
+    color: colors.muted,
   },
 });

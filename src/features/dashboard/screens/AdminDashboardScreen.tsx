@@ -245,13 +245,13 @@ const { profile } = useAuth();
           {data.stores.map(store => {
             const users = data.users.filter(user => (user.assignedStoreIds || []).includes(store.id));
             const staff = users.filter(user => user.role === 'staff').map(user => user.name);
-            const accounts = users.filter(user => user.role === 'accounts').map(user => user.name);
+            const accounts = users.filter(user => user.role === 'accountant').map(user => user.name);
             const supervisors = users.filter(user => user.role === 'supervisor').map(user => user.name);
             return (
               <View key={store.id} style={styles.teamBlock}>
                 <Text style={styles.rowTitle}>{store.name}</Text>
                 <Text style={styles.rowSub}>Staff ({staff.length}): {staff.join(', ') || 'None'}</Text>
-                <Text style={styles.rowSub}>Accounts ({accounts.length}): {accounts.join(', ') || 'None'}</Text>
+                <Text style={styles.rowSub}>Accountant ({accounts.length}): {accounts.join(', ') || 'None'}</Text>
                 <Text style={styles.rowSub}>Supervisor ({supervisors.length}): {supervisors.join(', ') || 'None'}</Text>
               </View>
             );

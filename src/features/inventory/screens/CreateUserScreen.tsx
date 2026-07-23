@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ScrollView } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../../components/AppButton';
 import { AppIcon } from '../../../components/AppIcon';
@@ -36,32 +36,76 @@ export function CreateUserScreen({ navigation, route }: Props) {
   const [assignedStoreIds, setAssignedStoreIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [showStoreDropdown, setShowStoreDropdown] = useState(false);
+
   const needsStoreAccess = role !== 'admin';
 
-  // Map of storeId -> staff user who already owns it (for one-store-one-staff rule).
-  const storeOwners = useMemo(() => {
-    const map = new Map<string, UserProfile>();
+  // Role options
+  const roleOptions: UserRole[] = ['staff', 'supervisor', 'accountant', 'admin'];
+
+  // Get role display name
+  const getRoleDisplayName = (role: UserRole) => {
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  };
+
+  // Get store owner info - only for staff role
+  const getStoreOwner = useMemo(() => {
+    const map = new Map<string, { name: string; role: UserRole }>();
     data.users.forEach(u => {
       if (u.role !== 'staff') return;
       (u.assignedStoreIds || []).forEach(id => {
-        if (!map.has(id)) map.set(id, u);
+        if (!map.has(id)) {
+          map.set(id, { name: u.name, role: u.role });
+        }
       });
     });
     return map;
   }, [data.users]);
 
+  // Check if store can be assigned to current role
+  const canAssignStore = (storeId: string) => {
+    const owner = getStoreOwner.get(storeId);
+    
+    if (owner) {
+      if (role === 'staff') {
+        return false;
+      }
+      if (role === 'accountant' || role === 'supervisor') {
+        return true;
+      }
+    }
+    
+    return true;
+  };
+
+  // Toggle store selection
   const toggleStore = (storeId: string) => {
     setFormError('');
-    const owner = storeOwners.get(storeId);
     const alreadySelected = assignedStoreIds.includes(storeId);
-    if (role === 'staff' && !alreadySelected && owner) {
-      setFormError(`Already assigned to: ${owner.name}`);
+    
+    if (alreadySelected) {
+      setAssignedStoreIds(cur => cur.filter(id => id !== storeId));
       return;
     }
-    setAssignedStoreIds(cur =>
-      cur.includes(storeId) ? cur.filter(id => id !== storeId) : [...cur, storeId],
-    );
+    
+    if (!canAssignStore(storeId)) {
+      const owner = getStoreOwner.get(storeId);
+      setFormError(`This store is already assigned to staff member: ${owner?.name}`);
+      return;
+    }
+    
+    setAssignedStoreIds(cur => [...cur, storeId]);
   };
+
+  // Get currently selected store names
+  const selectedStoreNames = useMemo(() => {
+    if (assignedStoreIds.length === 0) return 'Select stores...';
+    return data.stores
+      .filter(store => assignedStoreIds.includes(store.id))
+      .map(store => store.name)
+      .join(', ');
+  }, [assignedStoreIds, data.stores]);
 
   const submit = async () => {
     setFormError('');
@@ -99,114 +143,227 @@ export function CreateUserScreen({ navigation, route }: Props) {
           : 'Add a new admin, accounts, supervisor, or store staff member.'
       }
       title={isEditing ? 'Edit User' : 'Create User'}>
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.iconWrap}>
-            <AppIcon name="user" size={18} tintColor="#7C3AED" />
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled">
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconWrap}>
+              <AppIcon name="user" size={18} tintColor="#7C3AED" />
+            </View>
+            <Text style={styles.cardTitle}>{isEditing ? 'User Details' : 'New User'}</Text>
           </View>
-          <Text style={styles.cardTitle}>{isEditing ? 'User Details' : 'New User'}</Text>
-        </View>
 
-        <AppTextInput
-          label="Full Name"
-          onChangeText={setName}
-          placeholder="Team member name"
-          value={name}
-        />
+          <AppTextInput
+            label="Full Name"
+            onChangeText={setName}
+            placeholder="Team member name"
+            value={name}
+          />
 
-        {!isEditing && (
-          <>
-            <AppTextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              label="Email"
-              onChangeText={setEmail}
-              placeholder="name@company.com"
-              value={email}
-            />
-            <AppTextInput
-              label="Temporary Password"
-              onChangeText={setPassword}
-              placeholder="Minimum 6 characters"
-              secureTextEntry
-              showPasswordToggle
-              value={password}
-            />
-          </>
-        )}
+          {!isEditing && (
+            <>
+              <AppTextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                label="Email"
+                onChangeText={setEmail}
+                placeholder="name@company.com"
+                value={email}
+              />
+              <AppTextInput
+                label="Temporary Password"
+                onChangeText={setPassword}
+                placeholder="Minimum 6 characters"
+                secureTextEntry
+                showPasswordToggle
+                value={password}
+              />
+            </>
+          )}
 
-        <Text style={styles.groupLabel}>Role</Text>
-        <View style={styles.chipRow}>
-          {(['staff', 'supervisor', 'accounts', 'admin'] as UserRole[]).map(r => (
+          {/* Role Dropdown */}
+          <Text style={styles.groupLabel}>Role</Text>
+          <View style={[styles.dropdownWrapper, styles.roleDropdown]}>
             <Pressable
-              key={r}
-              onPress={() => setRole(r)}
-              style={[styles.chip, role === r && styles.chipActive]}>
-              <Text style={[styles.chipText, role === r && styles.chipTextActive]}>
-                {r.charAt(0).toUpperCase() + r.slice(1)}
+              style={styles.dropdownButton}
+              onPress={() => {
+                setShowRoleDropdown(!showRoleDropdown);
+                if (showStoreDropdown) setShowStoreDropdown(false);
+              }}>
+              <Text style={styles.dropdownButtonText}>
+                {getRoleDisplayName(role)}
               </Text>
+              <AppIcon 
+                name="chevronDown" 
+                size={20} 
+                tintColor={colors.muted} 
+              />
             </Pressable>
-          ))}
-        </View>
 
-        {!isEditing && needsStoreAccess && data.stores.length > 0 && (
-          <View style={styles.storeSection}>
-            <Text style={styles.groupLabel}>Assign Stores</Text>
-            <View style={styles.chipRow}>
-              {data.stores.map(store => {
-                const owner = storeOwners.get(store.id);
-                const selected = assignedStoreIds.includes(store.id);
-                const takenByOther = role === 'staff' && Boolean(owner) && !selected;
-                return (
+            {showRoleDropdown && (
+              <View style={[styles.dropdownMenu, styles.roleDropdownMenu]}>
+                {roleOptions.map((r) => (
                   <Pressable
-                    key={store.id}
-                    disabled={takenByOther}
-                    onPress={() => toggleStore(store.id)}
+                    key={r}
                     style={[
-                      styles.chip,
-                      selected && styles.chipActive,
-                      takenByOther && styles.chipDisabled,
-                    ]}>
+                      styles.dropdownItem,
+                      role === r && styles.dropdownItemActive,
+                    ]}
+                    onPress={() => {
+                      setRole(r);
+                      setShowRoleDropdown(false);
+                      if (r === 'admin') {
+                        setAssignedStoreIds([]);
+                      }
+                    }}>
                     <Text
                       style={[
-                        styles.chipText,
-                        selected && styles.chipTextActive,
-                        takenByOther && styles.chipTextDisabled,
+                        styles.dropdownItemText,
+                        role === r && styles.dropdownItemTextActive,
                       ]}>
-                      {store.name}
-                      {takenByOther ? ` · ${owner?.name}` : ''}
+                      {getRoleDisplayName(r)}
                     </Text>
+                    {role === r && (
+                      <View style={styles.checkmarkCircle}>
+                        <AppIcon name="check" size={14} tintColor={colors.surface} />
+                      </View>
+                    )}
                   </Pressable>
-                );
-              })}
-            </View>
-            <Text style={styles.hint}>
-              Staff stores stay one-to-one. Accounts and Supervisor can be assigned to every store they manage.
-            </Text>
+                ))}
+              </View>
+            )}
           </View>
-        )}
 
-        {isEditing && needsStoreAccess ? (
-          <Text style={styles.hint}>
-            Use "Assign Store" on the User Access screen to change store access.
-          </Text>
-        ) : null}
+          {/* Store Dropdown - Only show for non-admin roles */}
+          {!isEditing && needsStoreAccess && data.stores.length > 0 && (
+            <View style={styles.storeSection}>
+              <Text style={styles.groupLabel}>Assign Stores</Text>
+              
+              <View style={[styles.dropdownWrapper, styles.storeDropdown]}>
+                <Pressable
+                  style={styles.dropdownButton}
+                  onPress={() => {
+                    setShowStoreDropdown(!showStoreDropdown);
+                    if (showRoleDropdown) setShowRoleDropdown(false);
+                  }}>
+                  <Text
+                    style={[
+                      styles.dropdownButtonText,
+                      assignedStoreIds.length === 0 && styles.placeholderText,
+                    ]}>
+                    {selectedStoreNames}
+                  </Text>
+                  <View style={styles.dropdownRight}>
+                    {assignedStoreIds.length > 0 && (
+                      <View style={styles.selectedCount}>
+                        <Text style={styles.selectedCountText}>{assignedStoreIds.length}</Text>
+                      </View>
+                    )}
+                    <AppIcon 
+                      name="chevronDown" 
+                      size={20} 
+                      tintColor={colors.muted} 
+                    />
+                  </View>
+                </Pressable>
 
-        {formError ? <Text style={styles.error}>{formError}</Text> : null}
+                {showStoreDropdown && (
+                  <View style={[styles.dropdownMenu, styles.storeDropdownMenu]}>
+                    {data.stores.map((store) => {
+                      const selected = assignedStoreIds.includes(store.id);
+                      const owner = getStoreOwner.get(store.id);
+                      const isStaffStore = Boolean(owner);
+                      const canAssign = canAssignStore(store.id);
+                      const isDisabled = !canAssign && role === 'staff';
+                      
+                      return (
+                        <Pressable
+                          key={store.id}
+                          style={[
+                            styles.dropdownItem,
+                            selected && styles.dropdownItemActive,
+                            isDisabled && styles.dropdownItemDisabled,
+                          ]}
+                          onPress={() => toggleStore(store.id)}>
+                          <View style={styles.dropdownItemLeft}>
+                            <View style={[
+                              styles.storeCheckbox,
+                              selected && styles.storeCheckboxSelected,
+                              isDisabled && styles.storeCheckboxDisabled,
+                            ]}>
+                              {selected && (
+                                <AppIcon name="check" size={12} tintColor={colors.surface} />
+                              )}
+                            </View>
+                            <View>
+                              <Text
+                                style={[
+                                  styles.dropdownItemText,
+                                  selected && styles.dropdownItemTextActive,
+                                  isDisabled && styles.dropdownItemTextDisabled,
+                                ]}>
+                                {store.name}
+                              </Text>
+                              {isStaffStore && (
+                                <Text style={styles.storeOwnerTag}>
+                                  Assigned to: {owner?.name}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                          {isDisabled && (
+                            <Text style={styles.disabledTag}>Locked</Text>
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
 
-        <AppButton
-          disabled={disabled}
-          loading={submitting}
-          onPress={submit}
-          title={isEditing ? 'Save Changes' : 'Create User'}
-        />
-      </View>
+              <View style={styles.hintContainer}>
+                <View style={styles.hintRow}>
+                  <View style={[styles.hintDot, { backgroundColor: '#6366F1' }]} />
+                  <Text style={styles.hint}>Staff: One store only</Text>
+                </View>
+                <View style={styles.hintRow}>
+                  <View style={[styles.hintDot, { backgroundColor: '#8B5CF6' }]} />
+                  <Text style={styles.hint}>Accountant & Supervisor: Multiple stores</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {isEditing && needsStoreAccess ? (
+            <Text style={styles.hint}>
+              Use "Assign Store" on the User Access screen to change store access.
+            </Text>
+          ) : null}
+
+          {formError ? <Text style={styles.error}>{formError}</Text> : null}
+
+          <AppButton
+            disabled={disabled}
+            loading={submitting}
+            onPress={submit}
+            title={isEditing ? 'Save Changes' : 'Create User'}
+          />
+        </View>
+      </ScrollView>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: spacing.xl,
+  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 16,
@@ -214,6 +371,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
     ...shadows.sm,
+    marginBottom: spacing.md,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -243,46 +401,172 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     marginTop: spacing.xs,
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+  dropdownWrapper: {
     marginBottom: spacing.md,
+    position: 'relative',
   },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: 20,
+  roleDropdown: {
+    zIndex: 10,
+  },
+  storeDropdown: {
+    zIndex: 5,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: colors.background,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: 52,
+  },
+  dropdownButtonText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.sm,
+    color: colors.ink,
+    flex: 1,
+  },
+  placeholderText: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily.regular,
+  },
+  dropdownRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  selectedCount: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  selectedCountText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.surface,
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 56,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: 12,
+    ...shadows.md,
+    maxHeight: 280,
+    overflow: 'hidden',
   },
-  chipActive: {
+  roleDropdownMenu: {
+    zIndex: 20,
+  },
+  storeDropdownMenu: {
+    zIndex: 15,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    minHeight: 48,
+  },
+  dropdownItemActive: {
+    backgroundColor: '#8B5CF610',
+  },
+  dropdownItemDisabled: {
+    opacity: 0.5,
+  },
+  dropdownItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  dropdownItemText: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.sm,
+    color: colors.ink,
+  },
+  dropdownItemTextActive: {
+    color: colors.primary,
+    fontFamily: typography.fontFamily.semiBold,
+  },
+  dropdownItemTextDisabled: {
+    color: colors.muted,
+  },
+  checkmarkCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeCheckboxSelected: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  chipDisabled: {
-    opacity: 0.5,
+  storeCheckboxDisabled: {
+    borderColor: colors.muted,
   },
-  chipText: {
+  storeOwnerTag: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    marginTop: 1,
+  },
+  disabledTag: {
     fontFamily: typography.fontFamily.medium,
     fontSize: typography.fontSize.xs,
-    color: colors.inkSoft,
-  },
-  chipTextActive: {
-    color: colors.surface,
-  },
-  chipTextDisabled: {
-    color: colors.muted,
+    color: colors.danger,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   storeSection: {
     marginBottom: spacing.sm,
+  },
+  hintContainer: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    gap: 4,
+  },
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  hintDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   hint: {
     fontFamily: typography.fontFamily.regular,
     fontSize: typography.fontSize.xs,
     color: colors.muted,
-    marginBottom: spacing.md,
+    lineHeight: 18,
   },
   error: {
     fontFamily: typography.fontFamily.regular,

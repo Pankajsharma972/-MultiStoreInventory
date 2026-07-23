@@ -1,6 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
-import { collections, db, firebaseFunctions, firebaseStorage } from './firebase';
+import { collections, db, firebaseFunctions } from './firebase';
 import RNFS from 'react-native-fs';
 import { findMatchingInventory, inventoryMatchKey } from '../utils/inventoryHelpers';
 import type {
@@ -20,7 +20,7 @@ import type {
   Warehouse,
 } from '../types/models';
 
-
+// ✅ IMAGE SAVE IN FIRESTORE AS BASE64
 export async function uploadProductPhoto(localUri: string): Promise<string> {
   if (!localUri) {
     throw new Error('No image selected.');
@@ -30,47 +30,58 @@ export async function uploadProductPhoto(localUri: string): Promise<string> {
     // Strip file:// prefix if present
     const path = localUri.startsWith('file://') ? localUri.replace('file://', '') : localUri;
 
-    // Check file size before upload
-    let sizeKb = 0;
-    try {
-      const stat = await RNFS.stat(path);
-      sizeKb = Number(stat.size) / 1024;
-    } catch (statErr) {
-      // If stat fails, continue — upload will still be attempted
-      console.warn('Could not stat file, proceeding to upload:', statErr);
+    // Check if file exists
+    const exists = await RNFS.exists(path);
+    if (!exists) {
+      throw new Error('File does not exist at path: ' + path);
     }
 
-    if (sizeKb > 700) {
-      throw new Error('Image is too large. Please choose a smaller photo (reduce camera quality).');
+    // Read file as base64
+    const base64Data = await RNFS.readFile(path, 'base64');
+
+    // Get file extension
+    const ext = path.split('.').pop()?.toLowerCase() || 'jpg';
+
+    // Create data URL
+    const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+    const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+    // Size check - Firestore document size limit is 1MB
+    // Base64 adds ~33% overhead, so limit raw size to ~700KB
+    const approxSizeKb = (base64Data.length * 0.75) / 1024;
+    console.log('📊 Image size:', approxSizeKb.toFixed(2), 'KB');
+
+    if (approxSizeKb > 700) {
+      throw new Error('Image is too large (max 700KB). Please choose a smaller photo.');
     }
 
-    // Upload to Firebase Storage and return a downloadable URL
-    const ext = path.split('.').pop() || 'jpg';
-    const filename = `images/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const ref = firebaseStorage.ref(filename);
-
-    await ref.putFile(path);
-    const downloadUrl = await ref.getDownloadURL();
-
-    return downloadUrl;
+    return dataUrl;
   } catch (e: any) {
-    console.error('Photo upload failed:', e);
-    throw new Error(e.message || 'Failed to upload image.');
+    console.error('❌ Photo encoding failed:', e);
+    throw new Error(e.message || 'Failed to process image.');
   }
 }
-
-
 
 type Doc<T> = T & { id: string };
 
 export function readableDate(value?: unknown) {
-  const maybeTimestamp = value as { toDate?: () => Date } | undefined;
-  const date = maybeTimestamp?.toDate?.();
-  return date ? date.toLocaleString() : '';
+  if (!value) return '';
+  if (value instanceof Date) return value.toLocaleString();
+  if (typeof value === 'number') return new Date(value).toLocaleString();
+  const maybeTimestamp = value as { toDate?: () => Date; seconds?: number } | undefined;
+  if (typeof maybeTimestamp?.toDate === 'function') {
+    const date = maybeTimestamp.toDate();
+    return date ? date.toLocaleString() : '';
+  }
+  if (typeof maybeTimestamp?.seconds === 'number') {
+    return new Date(maybeTimestamp.seconds * 1000).toLocaleString();
+  }
+  return new Date().toLocaleString();
 }
 
 export function mapDoc<T>(doc: FirebaseFirestoreTypes.QueryDocumentSnapshot) {
-  return { id: doc.id, ...doc.data() } as Doc<T>;
+  const rawData = doc.data() || {};
+  return { id: doc.id, ...rawData } as Doc<T>;
 }
 
 export function mapSnapshot<T>(
@@ -534,7 +545,7 @@ const RESTOCKABLE_STATUSES: OrderStatus[] = [
 ];
 
 function isAccountsUser(user: UserProfile | null) {
-  return user?.role === 'accounts';
+  return user?.role === 'accountant';
 }
 
 function isSupervisorUser(user: UserProfile | null) {
@@ -757,10 +768,10 @@ async function transitionOrder(
         ...item,
         ...(restoredProduct
           ? {
-              stockBeforeReturn: restoredProduct.before,
-              stockReturned: restoredProduct.returned,
-              stockAfterReturn: restoredProduct.after,
-            }
+            stockBeforeReturn: restoredProduct.before,
+            stockReturned: restoredProduct.returned,
+            stockAfterReturn: restoredProduct.after,
+          }
           : {}),
         ...(shouldRestore ? { pendingQuantity: 0 } : {}),
       };
@@ -771,14 +782,14 @@ async function transitionOrder(
       deliveryStatus: nextStatus,
       ...(shouldRestore
         ? {
-            stockRestored: true,
-            restockedAt: firestore.FieldValue.serverTimestamp(),
-            pendingQuantity: 0,
-            cancelledBy: user?.name || user?.email || 'Accounts',
-            cancelledAt: firestore.FieldValue.serverTimestamp(),
-            cancellationReason: 'Order cancelled',
-            items: nextItems,
-          }
+          stockRestored: true,
+          restockedAt: firestore.FieldValue.serverTimestamp(),
+          pendingQuantity: 0,
+          cancelledBy: user?.name || user?.email || 'Accountant',
+          cancelledAt: firestore.FieldValue.serverTimestamp(),
+          cancellationReason: 'Order cancelled',
+          items: nextItems,
+        }
         : {}),
       updatedAt: firestore.FieldValue.serverTimestamp(),
     });
@@ -811,18 +822,18 @@ async function transitionOrder(
         status: nextStatus,
         ...(nextStatus === 'delivered'
           ? {
-              completedAt: firestore.FieldValue.serverTimestamp(),
-              completedBy: 'Accounts',
-            }
+            completedAt: firestore.FieldValue.serverTimestamp(),
+            completedBy: 'Accountant',
+          }
           : {}),
         ...(result.restored
           ? {
+            pendingQuantity: 0,
+            items: orderLineItemsOf({ ...(doc.data() as PendingDelivery), productId: '', productName: '', quantity: 0 }).map(item => ({
+              ...item,
               pendingQuantity: 0,
-              items: orderLineItemsOf({ ...(doc.data() as PendingDelivery), productId: '', productName: '', quantity: 0 }).map(item => ({
-                ...item,
-                pendingQuantity: 0,
-              })),
-            }
+            })),
+          }
           : {}),
         updatedAt: firestore.FieldValue.serverTimestamp(),
       });
@@ -845,7 +856,7 @@ export async function updateOrderStatus(
     (status === 'billed' || status === 'delivered' || status === 'cancelled') &&
     !isAccountsUser(user)
   ) {
-    throw new Error('Only accounts can approve billing, final delivery, or cancellation.');
+    throw new Error('Only Accountant can approve billing, final delivery, or cancellation.');
   }
   if (status === 'out_for_delivery') {
     throw new Error('Use dispatch approval with a truck loading photo before marking out for delivery.');
@@ -856,9 +867,8 @@ export async function updateOrderStatus(
   const result = await transitionOrder(order.id, status, user);
   await addActivity({
     action: 'Order Updated',
-    detail: `${order.customerName} order → ${status.replace(/_/g, ' ')}${
-      result.restored ? ' (stock returned)' : ''
-    }`,
+    detail: `${order.customerName} order → ${status.replace(/_/g, ' ')}${result.restored ? ' (stock returned)' : ''
+      }`,
     storeId: order.storeId,
     user,
   });
@@ -886,7 +896,7 @@ export async function updateDeliveryStatus(
     throw new Error('Use dispatch approval with a truck loading photo.');
   }
   if ((status === 'billed' || status === 'delivered' || status === 'cancelled') && !isAccountsUser(user)) {
-    throw new Error('Only accounts can approve billing, final delivery, or cancellation.');
+    throw new Error('Only Accountant can approve billing, final delivery, or cancellation.');
   }
   if (status === 'delivered' && Number(delivery.pendingQuantity || 0) > 0) {
     throw new Error('Remaining items are still pending. Complete all dispatches before final delivery approval.');
@@ -915,9 +925,8 @@ export async function updateDeliveryStatus(
 
   await addActivity({
     action: status === 'delivered' ? 'Delivery Completed' : 'Delivery Updated',
-    detail: `${delivery.customerName} delivery → ${status.replace(/_/g, ' ')}${
-      restored ? ' (stock returned)' : ''
-    }`,
+    detail: `${delivery.customerName} delivery → ${status.replace(/_/g, ' ')}${restored ? ' (stock returned)' : ''
+      }`,
     storeId: delivery.storeId,
     user,
   });
@@ -1116,6 +1125,7 @@ export async function updateUserDetails(
 }
 
 // Assign or unassign a single store to a staff user. Enforces that a store can
+// only belong to one staff user at a time.
 export async function setUserStoreAssignment(
   targetUser: UserProfile,
   storeId: string,
@@ -1126,18 +1136,7 @@ export async function setUserStoreAssignment(
   const assigned = new Set(targetUser.assignedStoreIds || []);
 
   // ✅ Staff, accounts, supervisor sabko allow - MULTIPLE USERS ALLOWED
-  if (assign && (targetUser.role === 'staff' || targetUser.role === 'accounts' || targetUser.role === 'supervisor')) {
-    // 🚫 COMMENT OUT OR REMOVE THIS CHECK - Multiple users ko allow karo
-    // const owner = allUsers.find(
-    //   candidate =>
-    //     candidate.uid !== targetUser.uid &&
-    //     (candidate.role === 'staff' || candidate.role === 'accounts' || candidate.role === 'supervisor') &&
-    //     (candidate.assignedStoreIds || []).includes(storeId),
-    // );
-    // if (owner) {
-    //   throw new Error(`Already assigned to: ${owner.name}`);
-    // }
-    
+  if (assign && (targetUser.role === 'staff' || targetUser.role === 'accountant' || targetUser.role === 'supervisor')) {
     // ✅ Directly assign karo, check mat karo
     assigned.add(storeId);
   } else {
@@ -1196,5 +1195,60 @@ export async function deleteOrder(
     throw new Error('Could not delete order. Please try again.');
   }
 }
+// Activity log delete functions
+export async function deleteActivityLog(logId: string): Promise<void> {
+  try {
+    await db.collection(collections.activityLogs).doc(logId).delete();
+  } catch (error) {
+    console.error('Error deleting activity log:', error);
+    throw new Error('Could not delete activity entry.');
+  }
+}
 
+export async function deleteMultipleActivityLogs(logIds: string[]): Promise<void> {
+  try {
+    const batch = db.batch();
+    logIds.forEach(id => {
+      const ref = db.collection(collections.activityLogs).doc(id);
+      batch.delete(ref);
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error('Error deleting multiple activity logs:', error);
+    throw new Error('Could not delete selected entries.');
+  }
+}
+
+export async function deleteAllActivityLogs(
+  filter: {
+    action?: string;
+    storeId?: string;
+    createdBy?: string;
+  } = {}
+): Promise<number> {
+  try {
+    let query: FirebaseFirestoreTypes.Query = db.collection(collections.activityLogs);
+
+    if (filter.action) {
+      query = query.where('action', '==', filter.action);
+    }
+    if (filter.storeId) {
+      query = query.where('storeId', '==', filter.storeId);
+    }
+    if (filter.createdBy) {
+      query = query.where('createdBy', '==', filter.createdBy);
+    }
+
+    const snapshot = await query.get();
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+    return snapshot.size;
+  } catch (error) {
+    console.error('Error deleting all activity logs:', error);
+    throw new Error('Could not delete entries.');
+  }
+}
 export { inventoryMatchKey };

@@ -40,7 +40,7 @@ export function Dropdown({
   const [open, setOpen] = useState(false);
 
   const selected = options.find(option => option.value === value);
-  const isDisabled = disabled || options.length === 0;
+  const isDisabled = Boolean(disabled);
 
   const handleSelect = (next: string) => {
     onChange(next);
@@ -73,8 +73,9 @@ export function Dropdown({
         animationType="fade"
         onRequestClose={() => setOpen(false)}
         statusBarTranslucent>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-          <Pressable
+        <View style={styles.backdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
+          <View
             style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
             <View style={styles.sheetHandle} />
             {label ? <Text style={styles.sheetTitle}>{label}</Text> : null}
@@ -82,30 +83,36 @@ export function Dropdown({
               style={styles.list}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContent}>
-              {options.map(option => {
-                const active = option.value === value;
-                return (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => handleSelect(option.value)}
-                    style={({ pressed }) => [
-                      styles.option,
-                      active && styles.optionActive,
-                      pressed && styles.optionPressed,
-                    ]}>
-                    <Text
-                      style={[styles.optionText, active && styles.optionTextActive]}>
-                      {option.label}
-                    </Text>
-                    {active ? (
-                      <AppIcon name="check" size={18} tintColor={colors.primary} />
-                    ) : null}
-                  </Pressable>
-                );
-              })}
+              {options.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>{emptyText}</Text>
+                </View>
+              ) : (
+                options.map(option => {
+                  const active = option.value === value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => handleSelect(option.value)}
+                      style={({ pressed }) => [
+                        styles.option,
+                        active && styles.optionActive,
+                        pressed && styles.optionPressed,
+                      ]}>
+                      <Text
+                        style={[styles.optionText, active && styles.optionTextActive]}>
+                        {option.label}
+                      </Text>
+                      {active ? (
+                        <AppIcon name="check" size={18} tintColor={colors.primary} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })
+              )}
             </ScrollView>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -207,5 +214,16 @@ const styles = StyleSheet.create({
   optionTextActive: {
     color: colors.primary,
     fontFamily: typography.fontFamily.semiBold,
+  },
+  emptyContainer: {
+    paddingVertical: spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
   },
 });
