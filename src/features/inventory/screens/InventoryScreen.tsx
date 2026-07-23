@@ -67,9 +67,6 @@ function alertTone(level: StockAlertLevel): 'success' | 'warning' | 'danger' {
 export function InventoryScreen({ navigation }: Props) {
   const { profile } = useAuth();
   const data = useInventoryData();
-   console.log('🖥️ InventoryScreen rendered');
-  console.log('📦 Total inventory in data:', data.inventory.length);
-  console.log('📦 First 3 items:', data.inventory.slice(0, 3).map(i => i.name));
   const dispatch = useAppDispatch();
   const filters = useAppSelector(state => state.filters.inventory);
   const query = filters.query;
@@ -105,6 +102,8 @@ export function InventoryScreen({ navigation }: Props) {
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextMenuItemId, setContextMenuItemId] = useState<string | null>(null);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [detailItem, setDetailItem] = useState<InventoryItem | null>(null);
   const insets = useSafeAreaInsets();
 
   // Godowns (warehouses) belonging to the store selected in the filter bar.
@@ -243,47 +242,51 @@ export function InventoryScreen({ navigation }: Props) {
     setUpdateModalVisible(true);
   };
 
+  // NEW: Open detail modal with full product info
+  const openDetailModal = (item: InventoryItem) => {
+    setDetailItem(item);
+    setDetailModalVisible(true);
+  };
+
   const handleLongPress = (item: InventoryItem) => {
     setContextMenuItemId(item.id);
     setContextMenuVisible(true);
   };
 
- const handleDeleteProduct = () => {
-  const item = data.inventory.find(i => i.id === contextMenuItemId);
-  if (!item) return;
+  const handleDeleteProduct = () => {
+    const item = data.inventory.find(i => i.id === contextMenuItemId);
+    if (!item) return;
 
-  // Close bottom sheet first
-  setContextMenuVisible(false);
+    setContextMenuVisible(false);
 
-  // Wait for animation
-  setTimeout(() => {
-    Alert.alert(
-      'Delete Product',
-      `Are you sure you want to delete "${item.name}"?`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteProduct(item, profile);
-              Alert.alert('Success', 'Product deleted successfully.');
-            } catch (error) {
-              Alert.alert(
-                'Error',
-                (error as Error).message || 'Could not delete product.',
-              );
-            }
+    setTimeout(() => {
+      Alert.alert(
+        'Delete Product',
+        `Are you sure you want to delete "${item.name}"?`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
           },
-        },
-      ],
-    );
-  }, 250); // wait until modal closes
-};
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteProduct(item, profile);
+                Alert.alert('Success', 'Product deleted successfully.');
+              } catch (error) {
+                Alert.alert(
+                  'Error',
+                  (error as Error).message || 'Could not delete product.',
+                );
+              }
+            },
+          },
+        ],
+      );
+    }, 250);
+  };
 
   const handleEditProduct = () => {
     const item = data.inventory.find(i => i.id === contextMenuItemId);
@@ -293,13 +296,11 @@ export function InventoryScreen({ navigation }: Props) {
     }
   };
 
-  // Filter option handler - applies filter and closes popup
   const handleFilterSelect = (action: () => void) => {
     action();
     setFilterPopupVisible(false);
   };
 
-  // Get selected store name
   const selectedStoreName = data.stores.find(s => s.id === storeId)?.name || 'All Stores';
 
   // Context Menu Component
@@ -344,6 +345,142 @@ export function InventoryScreen({ navigation }: Props) {
     </Modal>
   );
 
+  // NEW: Product Detail Modal
+  const ProductDetailModal = () => (
+    <Modal
+      visible={detailModalVisible && !!detailItem}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setDetailModalVisible(false)}
+      statusBarTranslucent>
+      <View style={styles.modalBackdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setDetailModalVisible(false)}
+        />
+        <View style={[styles.detailModalSheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <View style={styles.modalHandle} />
+          
+          {detailItem && (
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.detailModalContent}>
+              
+              {/* Close button */}
+              <Pressable
+                onPress={() => setDetailModalVisible(false)}
+                style={styles.detailCloseBtn}>
+                <Text style={styles.detailCloseText}>✕</Text>
+              </Pressable>
+
+              {/* Product Image - BIG */}
+              <View style={styles.detailImageContainer}>
+                <ProductThumbnail uri={detailItem.photoUrl} size={200} />
+              </View>
+
+              {/* Product Title */}
+              <Text style={styles.detailProductName}>{detailItem.name}</Text>
+              
+              {detailItem.brand && (
+                <Text style={styles.detailBrand}>{detailItem.brand}</Text>
+              )}
+
+              {/* Stock Status */}
+              <View style={styles.detailStatusRow}>
+                <StatusBadge 
+                  label={stockAlertLabel(getStockAlertLevel(detailItem))} 
+                  tone={alertTone(getStockAlertLevel(detailItem))} 
+                />
+              </View>
+
+              {/* Quantity - Big and prominent */}
+              <View style={styles.detailQuantityContainer}>
+                <Text style={styles.detailQuantityLabel}>Quantity</Text>
+                <Text style={styles.detailQuantityValue}>{detailItem.quantity}</Text>
+              </View>
+
+              {/* Divider */}
+              <View style={styles.detailDivider} />
+
+              {/* All Details Grid */}
+              <View style={styles.detailGrid}>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLabel}>Category</Text>
+                  <Text style={styles.detailGridValue}>{detailItem.category || '—'}</Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLabel}>Size</Text>
+                  <Text style={styles.detailGridValue}>{detailItem.size || '—'}</Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLabel}>SKU</Text>
+                  <Text style={styles.detailGridValue}>{detailItem.sku || '—'}</Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLabel}>Min. Quantity</Text>
+                  <Text style={styles.detailGridValue}>{detailItem.minimumQuantity}</Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLabel}>Glaze</Text>
+                  <Text style={styles.detailGridValue}>{detailItem.glaze ? glazeLabel(detailItem.glaze) : '—'}</Text>
+                </View>
+                <View style={styles.detailGridItem}>
+                  <Text style={styles.detailGridLabel}>Location</Text>
+                  <Text style={styles.detailGridValue}>{detailItem.locationCode || '—'}</Text>
+                </View>
+              </View>
+
+              {/* Store & Warehouse Info */}
+              {(() => {
+                const store = data.stores.find(s => s.id === detailItem.storeId);
+                const warehouse = data.warehouses.find(w => w.id === detailItem.warehouseId);
+                return (
+                  <View style={styles.detailLocationInfo}>
+                    <Text style={styles.detailLocationText}>
+                      <Text style={styles.detailLocationLabel}>Store: </Text>
+                      {store?.name || '—'}
+                    </Text>
+                    <Text style={styles.detailLocationText}>
+                      <Text style={styles.detailLocationLabel}>Warehouse: </Text>
+                      {warehouse?.name || '—'}
+                    </Text>
+                  </View>
+                );
+              })()}
+
+              {/* Action Buttons */}
+              <View style={styles.detailActionRow}>
+                <Pressable
+                  onPress={() => {
+                    setDetailModalVisible(false);
+                    openUpdateModal(detailItem);
+                  }}
+                  style={[styles.detailActionBtn, styles.detailActionPrimary]}>
+                  <AppIcon name="box" size={18} tintColor={colors.surface} />
+                  <Text style={styles.detailActionBtnText}>Update Stock</Text>
+                </Pressable>
+                
+                {profile?.role === 'admin' && (
+                  <Pressable
+                    onPress={() => {
+                      setDetailModalVisible(false);
+                      navigation.navigate('NewProduct', { item: detailItem });
+                    }}
+                    style={[styles.detailActionBtn, styles.detailActionSecondary]}>
+                    <AppIcon name="edit" size={18} tintColor={colors.primary} />
+                    <Text style={[styles.detailActionBtnText, styles.detailActionBtnTextSecondary]}>
+                      Edit Product
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   // Filter Popup Component
   const FilterPopup = () => (
     <View 
@@ -363,14 +500,13 @@ export function InventoryScreen({ navigation }: Props) {
         style={styles.filterPopupScroll}
         contentContainerStyle={styles.filterPopupContent}>
         
-        {/* Store filter - Dropdown style with list */}
+        {/* Store filter */}
         <View style={styles.filterPopupGroup}>
           <View style={styles.filterPopupLabelRow}>
             <Text style={styles.filterPopupLabel}>Store</Text>
             <Text style={styles.filterPopupSelectedValue}>{selectedStoreName}</Text>
           </View>
           
-          {/* Store list with scrolling */}
           <View style={styles.storeListContainer}>
             <ScrollView 
               horizontal
@@ -507,7 +643,7 @@ export function InventoryScreen({ navigation }: Props) {
           </View>
         )}
 
-        {/* Low Stock toggle - made compact */}
+        {/* Low Stock toggle */}
         <View style={styles.filterPopupGroup}>
           <Text style={styles.filterPopupLabel}>Stock Status</Text>
           <Pressable
@@ -545,13 +681,12 @@ export function InventoryScreen({ navigation }: Props) {
       subtitle="Search, filter and manage your live inventory."
       title="Products"
       rightAction={
-  <Pressable
-    onPress={() => navigation.navigate('NewProduct')}
-    style={styles.headerAddBtn}>
-    <AppIcon name="plus" size={20} tintColor={colors.surface} />
-  </Pressable>
-}
->
+        <Pressable
+          onPress={() => navigation.navigate('NewProduct')}
+          style={styles.headerAddBtn}>
+          <AppIcon name="plus" size={20} tintColor={colors.surface} />
+        </Pressable>
+      }>
       {/* ── Search Card ─────────────────────────────────────────── */}
       <View style={styles.searchCard}>
         {/* Search Row with integrated search icon */}
@@ -598,7 +733,7 @@ export function InventoryScreen({ navigation }: Props) {
           </Pressable>
         </View>
 
-        {/* Active filters summary - show what filters are applied */}
+        {/* Active filters summary */}
         {activeFilterCount > 0 && (
           <ScrollView
             horizontal
@@ -666,13 +801,17 @@ export function InventoryScreen({ navigation }: Props) {
           return (
             <Pressable
               key={item.id}
-              onPress={() => setSelectedItemId(item.id)}
+              onPress={() => {
+                // NEW: Clicking on card opens details modal
+                openDetailModal(item);
+              }}
               onLongPress={() => handleLongPress(item)}
               delayLongPress={500}
               style={[styles.itemCard, alertLevel !== 'ok' && styles.itemCardAlert, isSelected && styles.itemCardSelected]}>
               <View style={styles.itemHeader}>
                 <View style={styles.itemTitleWrap}>
-                  <ProductThumbnail uri={item.photoUrl} size={44} />
+                  {/* CHANGED: Bigger product thumbnail */}
+                  <ProductThumbnail uri={item.photoUrl} size={64} />
                   <View style={styles.itemTitleTextWrap}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     {item.brand ? (
@@ -683,7 +822,10 @@ export function InventoryScreen({ navigation }: Props) {
                 <View style={styles.itemHeaderRight}>
                   <Text style={[styles.itemQty, alertLevel !== 'ok' && styles.itemQtyAlert]}>{item.quantity}</Text>
                   <Pressable
-                    onPress={() => openUpdateModal(item)}
+                    onPress={(e) => {
+                      e.stopPropagation(); // Prevent opening detail modal
+                      openUpdateModal(item);
+                    }}
                     hitSlop={8}
                     style={styles.cardEditBtn}>
                     <AppIcon name="edit" size={16} tintColor={colors.accent} />
@@ -712,14 +854,6 @@ export function InventoryScreen({ navigation }: Props) {
         })
       )}
 
-      {/* {profile?.role === 'admin' && (
-        <Pressable
-          onPress={() => navigation.navigate('NewProduct')}
-          style={styles.fab}>
-          <AppIcon name="plus" size={24} tintColor="#FFFFFF" />
-        </Pressable>
-      )} */}
-
       {/* Filter Popup - positioned near the filter button */}
       {filterPopupVisible && (
         <>
@@ -733,6 +867,9 @@ export function InventoryScreen({ navigation }: Props) {
 
       {/* Context Menu - for product long-press */}
       {contextMenuVisible && <ContextMenu />}
+
+      {/* NEW: Product Detail Modal */}
+      <ProductDetailModal />
 
       {/* Update Stock Modal */}
       <Modal
@@ -945,14 +1082,14 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerAddBtn: {
-  width: 36,
-  height: 36,
-  borderRadius: 18,
-  backgroundColor: colors.primary,
-  alignItems: 'center',
-  justifyContent: 'center',
-  ...shadows.sm,
-},
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.sm,
+  },
   clearSearchText: {
     fontSize: 14,
     color: colors.muted,
@@ -1078,7 +1215,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     maxWidth: 150,
   },
-  // Store list styles
   storeListContainer: {
     marginTop: spacing.xs,
   },
@@ -1113,7 +1249,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.xs,
   },
-  // Small compact option for filters
   filterPopupOptionSmall: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
@@ -1173,117 +1308,6 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.semiBold,
     fontSize: typography.fontSize.xs,
     color: colors.danger,
-  },
-  // ── Filter Modal (for reference) ────────────────────────────────────────────
-  filterModalSheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    maxHeight: '90%',
-    ...shadows.lg,
-  },
-  filterModalContent: {
-    flex: 1,
-  },
-  filterModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    marginBottom: spacing.md,
-  },
-  filterModalTitle: {
-    fontFamily: typography.fontFamily.bold,
-    fontSize: typography.fontSize.lg,
-    color: colors.ink,
-  },
-  filterModalClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterModalCloseText: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.md,
-    color: colors.muted,
-  },
-  filterGroup: {
-    marginBottom: spacing.lg,
-  },
-  filterGroupLabel: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.muted,
-    marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingVertical: 2,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  chipText: {
-    fontFamily: typography.fontFamily.medium,
-    fontSize: typography.fontSize.xs,
-    color: colors.inkSoft,
-  },
-  chipTextActive: {
-    color: colors.surface,
-  },
-  chipDanger: {
-    borderColor: '#FECACA',
-    backgroundColor: colors.cardTintRed,
-    alignSelf: 'flex-start',
-  },
-  chipDangerActive: {
-    backgroundColor: colors.danger,
-    borderColor: colors.danger,
-  },
-  chipDangerText: {
-    color: colors.danger,
-  },
-  resetBtn: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: colors.cardTintRed,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    marginTop: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  resetBtnText: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.danger,
-  },
-  applyFilterBtn: {
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
   },
   // ── Inventory Item Card ───────────────────────────────────────────────────────
   itemCard: {
@@ -1374,21 +1398,6 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.medium,
     fontSize: typography.fontSize.xs,
     color: colors.primary,
-  },
-  // ── Update button (header) ───────────────────────────────────────────────────
-  updateActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
-  },
-  updateActionBtnText: {
-    fontFamily: typography.fontFamily.semiBold,
-    fontSize: typography.fontSize.xs,
-    color: colors.surface,
   },
   // ── Modals ──────────────────────────────────────────────────────────────────
   modalBackdrop: {
@@ -1485,7 +1494,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginBottom: spacing.md,
   },
-  // Context Menu Styles
+  // ── Context Menu Styles ──────────────────────────────────────────────────────
   contextMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1508,5 +1517,186 @@ const styles = StyleSheet.create({
   },
   contextMenuItemTextDanger: {
     color: colors.danger,
+  },
+  // ── Detail Modal Styles ──────────────────────────────────────────────────────
+  detailModalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    maxHeight: '92%',
+    ...shadows.lg,
+  },
+  detailModalContent: {
+    paddingBottom: spacing.xl,
+  },
+  detailCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+    marginBottom: spacing.sm,
+  },
+  detailCloseText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.md,
+    color: colors.muted,
+  },
+  detailImageContainer: {
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  detailProductName: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.xl,
+    color: colors.ink,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  detailBrand: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.md,
+    color: colors.accent,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  detailStatusRow: {
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  detailQuantityContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 16,
+    marginBottom: spacing.md,
+  },
+  detailQuantityLabel: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.md,
+    color: colors.ink,
+  },
+  detailQuantityValue: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.xxxl,
+    color: colors.primary,
+  },
+  detailDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  detailGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -spacing.xs,
+  },
+  detailGridItem: {
+    width: '50%',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  detailGridLabel: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    marginBottom: 2,
+  },
+  detailGridValue: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.md,
+    color: colors.ink,
+  },
+  detailLocationInfo: {
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: 12,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  detailLocationText: {
+    fontFamily: typography.fontFamily.regular,
+    fontSize: typography.fontSize.sm,
+    color: colors.ink,
+    marginBottom: 2,
+  },
+  detailLocationLabel: {
+    fontFamily: typography.fontFamily.semiBold,
+    color: colors.muted,
+  },
+  detailActionRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  detailActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: 14,
+  },
+  detailActionPrimary: {
+    backgroundColor: colors.primary,
+  },
+  detailActionSecondary: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  detailActionBtnText: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.sm,
+    color: colors.surface,
+  },
+  detailActionBtnTextSecondary: {
+    color: colors.primary,
+  },
+  // ── Chip Row (reused) ──────────────────────────────────────────────────────
+  filterGroupLabel: {
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: typography.fontSize.xs,
+    color: colors.muted,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingVertical: 2,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.inkSoft,
+  },
+  chipTextActive: {
+    color: colors.surface,
   },
 });
